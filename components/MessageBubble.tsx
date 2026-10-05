@@ -2,7 +2,17 @@
 
 import React, { useState } from 'react';
 import { Message } from '@/lib/types';
-import { Check, CheckCheck, Clock, FileText, Download, ExternalLink, X, Trash2 } from 'lucide-react';
+import {
+  Check,
+  CheckCheck,
+  Clock,
+  FileText,
+  Download,
+  ExternalLink,
+  X,
+  Trash2,
+} from 'lucide-react';
+import { VoiceNotePlayer } from './VoiceNotePlayer';
 
 interface MessageBubbleProps {
   message: Message;
@@ -43,15 +53,45 @@ export const MessageBubble: React.FC<MessageBubbleProps> = ({
     (message.file_type?.startsWith('image/') ||
       /\.(jpg|jpeg|png|gif|webp|svg)$/i.test(message.file_url));
 
+  const isAudioAttachment =
+    message.file_url &&
+    (message.file_type?.startsWith('audio/') ||
+      /\.(webm|ogg|mp3|wav|m4a|aac)$/i.test(message.file_url) ||
+      message.file_name?.startsWith('voice_note_'));
+
+  // Utility to render text with auto-hyperlinking
+  const renderMessageContent = (text: string) => {
+    const urlRegex = /(https?:\/\/[^\s]+)/g;
+    const parts = text.split(urlRegex);
+
+    return parts.map((part, i) => {
+      if (part.match(urlRegex)) {
+        return (
+          <a
+            key={i}
+            href={part}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="text-[#53bdeb] hover:underline underline-offset-2 break-all"
+            onClick={(e) => e.stopPropagation()}
+          >
+            {part}
+          </a>
+        );
+      }
+      return part;
+    });
+  };
+
   return (
     <>
       <div
-        className={`group/bubble flex items-end gap-1.5 mb-2.5 ${
+        className={`group/bubble flex items-start gap-1.5 mb-2 relative ${
           isCurrentUser ? 'justify-end' : 'justify-start'
         }`}
       >
         {!isCurrentUser && (
-          <div className="w-7 h-7 rounded-full bg-[#111b21] border border-[#222e35] overflow-hidden shrink-0 flex items-center justify-center text-xs font-semibold text-[#8696a0]">
+          <div className="w-7 h-7 rounded-full bg-[#111b21] border border-[#222e35] overflow-hidden shrink-0 flex items-center justify-center text-xs font-semibold text-[#8696a0] mt-0.5">
             {senderAvatar ? (
               // eslint-disable-next-line @next/next/no-img-element
               <img
@@ -65,106 +105,143 @@ export const MessageBubble: React.FC<MessageBubbleProps> = ({
           </div>
         )}
 
-        <div
-          className={`max-w-[85%] sm:max-w-[70%] md:max-w-[60%] rounded-2xl px-3 py-2 shadow-sm text-sm relative break-words ${
-            isCurrentUser
-              ? 'bg-[#005c4b] text-[#e9edef] rounded-br-xs'
-              : 'bg-[#202c33] text-[#e9edef] rounded-bl-xs'
-          }`}
-        >
-          {/* File Attachment: Image Preview */}
-          {isImageAttachment && message.file_url && (
-            <div className="mb-1.5 overflow-hidden rounded-xl border border-black/10 relative group">
-              {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img
-                src={message.file_url}
-                alt={message.file_name || 'Attached Image'}
-                className="w-full max-h-72 object-cover rounded-xl cursor-pointer hover:opacity-95 transition"
-                onClick={() => setIsLightboxOpen(true)}
-              />
-              <button
-                onClick={() => setIsLightboxOpen(true)}
-                className="absolute top-2 right-2 p-1.5 rounded-full bg-black/60 text-white opacity-0 group-hover:opacity-100 transition shadow-md"
-                title="View full image"
-              >
-                <ExternalLink className="w-3.5 h-3.5" />
-              </button>
-            </div>
+        <div className="relative max-w-[85%] sm:max-w-[70%] md:max-w-[62%]">
+          {/* WhatsApp Tail SVGs */}
+          {isCurrentUser ? (
+            <span
+              className="absolute top-0 -right-2 text-[#005c4b] pointer-events-none select-none"
+              aria-hidden="true"
+            >
+              <svg viewBox="0 0 8 13" height="13" width="8" className="fill-current">
+                <path d="M5.188 0H0v11.193l6.467-8.625C7.526 1.156 6.958 0 5.188 0z" />
+              </svg>
+            </span>
+          ) : (
+            <span
+              className="absolute top-0 -left-2 text-[#202c33] pointer-events-none select-none"
+              aria-hidden="true"
+            >
+              <svg viewBox="0 0 8 13" height="13" width="8" className="fill-current">
+                <path d="M1.533 1.568L8 10.193V0H2.812C1.042 0 .474 0 1.533 1.568z" />
+              </svg>
+            </span>
           )}
 
-          {/* File Attachment: Document or Generic File */}
-          {!isImageAttachment && message.file_url && (
-            <div className="mb-1.5 flex items-center gap-3 p-2.5 bg-black/20 rounded-xl border border-white/5">
-              <div className="w-10 h-10 rounded-lg bg-[#111b21] flex items-center justify-center text-[#00a884] shrink-0">
-                <FileText className="w-5 h-5" />
-              </div>
-              <div className="flex-1 min-w-0">
-                <p className="text-xs font-semibold text-white truncate">
-                  {message.file_name || 'Document'}
-                </p>
-                <p className="text-[10px] text-[#8696a0]">
-                  {formatFileSize(message.file_size)}
-                </p>
-              </div>
-              <a
-                href={message.file_url}
-                target="_blank"
-                rel="noopener noreferrer"
-                download={message.file_name || 'download'}
-                className="p-2 rounded-full hover:bg-white/10 text-[#00a884] hover:text-[#25d366] transition shrink-0"
-                title="Download file"
-              >
-                <Download className="w-4 h-4" />
-              </a>
-            </div>
-          )}
-
-          {/* Message Text (if text was provided or different from file name) */}
-          {message.content &&
-            (!message.file_url || message.content !== message.file_name) && (
-              <p className="whitespace-pre-wrap leading-relaxed select-text text-[13.5px]">
-                {message.content}
+          {/* Bubble container */}
+          <div
+            className={`rounded-2xl px-3 py-2 shadow-sm text-sm relative break-words ${
+              isCurrentUser
+                ? 'bg-[#005c4b] text-[#e9edef] rounded-tr-none'
+                : 'bg-[#202c33] text-[#e9edef] rounded-tl-none'
+            }`}
+          >
+            {/* Sender name for group/incoming */}
+            {!isCurrentUser && senderName && (
+              <p className="text-[11px] font-bold text-[#53bdeb] mb-1 select-none">
+                {senderName}
               </p>
             )}
 
-          {/* Timestamp, Read Status, and Delete Action */}
-          <div
-            className={`flex items-center justify-end gap-1.5 text-[10px] mt-1 select-none text-[#8696a0]`}
-          >
-            <span>{formatTime(message.created_at)}</span>
-
-            {isCurrentUser && (
-              <span
-                title={
-                  message.id.startsWith('temp-')
-                    ? 'Sending...'
-                    : message.read_at
-                    ? `Seen at ${formatTime(message.read_at)}`
-                    : 'Delivered'
-                }
-              >
-                {message.id.startsWith('temp-') ? (
-                  <Clock className="w-3 h-3 text-[#8696a0] inline animate-pulse" />
-                ) : message.read_at ? (
-                  // WhatsApp iconic sky-blue double ticks
-                  <CheckCheck className="w-3.5 h-3.5 text-[#53bdeb] inline" />
-                ) : (
-                  <Check className="w-3.5 h-3.5 text-[#8696a0] inline" />
-                )}
-              </span>
+            {/* Audio Voice Note Player */}
+            {isAudioAttachment && message.file_url && (
+              <VoiceNotePlayer
+                audioUrl={message.file_url}
+                isCurrentUser={isCurrentUser}
+              />
             )}
 
-            {/* Delete button (visible on hover or tap) */}
-            {isCurrentUser && onDelete && !message.id.startsWith('temp-') && (
-              <button
-                onClick={() => setShowDeleteModal(true)}
-                className="opacity-0 group-hover/bubble:opacity-100 transition-opacity p-0.5 text-[#8696a0] hover:text-rose-400 rounded hover:bg-black/20 cursor-pointer"
-                title="Delete message"
-                aria-label="Delete message"
-              >
-                <Trash2 className="w-3 h-3" />
-              </button>
+            {/* File Attachment: Image Preview */}
+            {!isAudioAttachment && isImageAttachment && message.file_url && (
+              <div className="mb-1.5 overflow-hidden rounded-xl border border-black/10 relative group">
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img
+                  src={message.file_url}
+                  alt={message.file_name || 'Attached Image'}
+                  className="w-full max-h-72 object-cover rounded-xl cursor-pointer hover:opacity-95 transition"
+                  onClick={() => setIsLightboxOpen(true)}
+                />
+                <button
+                  onClick={() => setIsLightboxOpen(true)}
+                  className="absolute top-2 right-2 p-1.5 rounded-full bg-black/60 text-white opacity-0 group-hover:opacity-100 transition shadow-md cursor-pointer"
+                  title="View full image"
+                  aria-label="View full image"
+                >
+                  <ExternalLink className="w-3.5 h-3.5" />
+                </button>
+              </div>
             )}
+
+            {/* File Attachment: Document or Generic File */}
+            {!isAudioAttachment && !isImageAttachment && message.file_url && (
+              <div className="mb-1.5 flex items-center gap-3 p-2.5 bg-black/20 rounded-xl border border-white/5">
+                <div className="w-10 h-10 rounded-lg bg-[#111b21] flex items-center justify-center text-[#00a884] shrink-0">
+                  <FileText className="w-5 h-5" />
+                </div>
+                <div className="flex-1 min-w-0">
+                  <p className="text-xs font-semibold text-white truncate">
+                    {message.file_name || 'Document'}
+                  </p>
+                  <p className="text-[10px] text-[#8696a0]">
+                    {formatFileSize(message.file_size)}
+                  </p>
+                </div>
+                <a
+                  href={message.file_url}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  download={message.file_name || 'download'}
+                  className="p-2 rounded-full hover:bg-white/10 text-[#00a884] hover:text-[#25d366] transition shrink-0"
+                  title="Download file"
+                >
+                  <Download className="w-4 h-4" />
+                </a>
+              </div>
+            )}
+
+            {/* Message Text (if text was provided or different from file name) */}
+            {message.content &&
+              (!message.file_url || message.content !== message.file_name) && (
+                <p className="whitespace-pre-wrap leading-relaxed select-text text-[13.5px]">
+                  {renderMessageContent(message.content)}
+                </p>
+              )}
+
+            {/* Timestamp, Read Status, and Delete Action */}
+            <div className="flex items-center justify-end gap-1.5 text-[10px] mt-1 select-none text-[#8696a0]">
+              <span>{formatTime(message.created_at)}</span>
+
+              {isCurrentUser && (
+                <span
+                  title={
+                    message.id.startsWith('temp-')
+                      ? 'Sending...'
+                      : message.read_at
+                      ? `Seen at ${formatTime(message.read_at)}`
+                      : 'Delivered'
+                  }
+                >
+                  {message.id.startsWith('temp-') ? (
+                    <Clock className="w-3 h-3 text-[#8696a0] inline animate-pulse" />
+                  ) : message.read_at ? (
+                    <CheckCheck className="w-3.5 h-3.5 text-[#53bdeb] inline" />
+                  ) : (
+                    <Check className="w-3.5 h-3.5 text-[#8696a0] inline" />
+                  )}
+                </span>
+              )}
+
+              {/* Delete button (visible on hover or focus) */}
+              {isCurrentUser && onDelete && !message.id.startsWith('temp-') && (
+                <button
+                  onClick={() => setShowDeleteModal(true)}
+                  className="opacity-0 group-hover/bubble:opacity-100 transition-opacity p-0.5 text-[#8696a0] hover:text-rose-400 rounded hover:bg-black/20 cursor-pointer"
+                  title="Delete message"
+                  aria-label="Delete message"
+                >
+                  <Trash2 className="w-3 h-3" />
+                </button>
+              )}
+            </div>
           </div>
         </div>
       </div>
@@ -217,7 +294,7 @@ export const MessageBubble: React.FC<MessageBubbleProps> = ({
         >
           <button
             onClick={() => setIsLightboxOpen(false)}
-            className="absolute top-4 right-4 p-2 text-white bg-white/10 hover:bg-white/20 rounded-full transition"
+            className="absolute top-4 right-4 p-2 text-white bg-white/10 hover:bg-white/20 rounded-full transition cursor-pointer"
             aria-label="Close"
           >
             <X className="w-6 h-6" />

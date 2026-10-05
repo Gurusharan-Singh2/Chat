@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { Profile, Conversation } from '@/lib/types';
 import { createClient } from '@/lib/supabase/client';
 import {
@@ -12,6 +12,11 @@ import {
   Check,
   CheckCheck,
   Camera,
+  X,
+  MoreVertical,
+  CircleDashed,
+  SquarePen,
+  Mic,
 } from 'lucide-react';
 import Link from 'next/link';
 import { useRouter, usePathname } from 'next/navigation';
@@ -21,6 +26,8 @@ interface UserListProps {
   currentUser: Profile;
   isOnline: (userId: string) => boolean;
 }
+
+type FilterTab = 'all' | 'unread' | 'favorites';
 
 export const UserList: React.FC<UserListProps> = ({ currentUser, isOnline }) => {
   const router = useRouter();
@@ -34,10 +41,25 @@ export const UserList: React.FC<UserListProps> = ({ currentUser, isOnline }) => 
   const [searchResults, setSearchResults] = useState<Profile[]>([]);
   const [isSearching, setIsSearching] = useState(false);
   const [isLoadingConversations, setIsLoadingConversations] = useState(true);
+  const [activeFilter, setActiveFilter] = useState<FilterTab>('all');
+  const [showMenuDropdown, setShowMenuDropdown] = useState(false);
+
+  const menuRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     setUserProfile(currentUser);
   }, [currentUser]);
+
+  // Close dropdown on outside click
+  useEffect(() => {
+    const handleClickOutside = (e: MouseEvent) => {
+      if (menuRef.current && !menuRef.current.contains(e.target as Node)) {
+        setShowMenuDropdown(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
 
   // --------------------------------------------------------------------------
   // Fetch Existing Conversations
@@ -65,7 +87,7 @@ export const UserList: React.FC<UserListProps> = ({ currentUser, isOnline }) => 
         conv.user1_id === currentUser.id ? conv.user2_id : conv.user1_id
       );
 
-      // Fetch profiles and recent messages in 2 fast parallel batch queries
+      // Fetch profiles and recent messages in parallel batch queries
       const [profilesRes, messagesRes] = await Promise.all([
         supabase.from('profiles').select('*').in('id', otherUserIds),
         supabase
@@ -78,17 +100,15 @@ export const UserList: React.FC<UserListProps> = ({ currentUser, isOnline }) => 
       const profileMap = new Map<string, Profile>();
       profilesRes.data?.forEach((p) => profileMap.set(p.id, p));
 
-      // Group messages by conversation to calculate last message and unread count instantly
+      // Group messages by conversation to calculate last message and unread count
       const lastMessageMap = new Map<string, any>();
       const unreadCountMap = new Map<string, number>();
 
       messagesRes.data?.forEach((msg) => {
-        // First message seen is the latest message due to descending sort
         if (!lastMessageMap.has(msg.conversation_id)) {
           lastMessageMap.set(msg.conversation_id, msg);
         }
 
-        // Count unread incoming messages
         if (msg.sender_id !== currentUser.id && !msg.read_at) {
           const currentCount = unreadCountMap.get(msg.conversation_id) || 0;
           unreadCountMap.set(msg.conversation_id, currentCount + 1);
@@ -169,7 +189,7 @@ export const UserList: React.FC<UserListProps> = ({ currentUser, isOnline }) => 
       } finally {
         setIsSearching(false);
       }
-    }, 300);
+    }, 250);
 
     return () => clearTimeout(timer);
   }, [searchQuery, currentUser.id, supabase]);
@@ -224,43 +244,186 @@ export const UserList: React.FC<UserListProps> = ({ currentUser, isOnline }) => 
     router.refresh();
   };
 
+  // Filter conversations by active tab
+  const filteredConversations = useMemo(() => {
+    if (activeFilter === 'unread') {
+      return conversations.filter((c) => (c.unread_count || 0) > 0);
+    }
+    return conversations;
+  }, [conversations, activeFilter]);
+
+  const totalUnreadCount = useMemo(() => {
+    return conversations.reduce((acc, curr) => acc + (curr.unread_count || 0), 0);
+  }, [conversations]);
+
   return (
     <div className="flex flex-col h-full bg-[#111b21] border-r border-[#222e35] w-full select-none">
       {/* WhatsApp Sidebar Header */}
-      <div className="p-3 bg-[#202c33] border-b border-[#222e35]">
-        <div className="flex items-center justify-between mb-3">
-          <div className="flex items-center gap-2.5">
-            <div className="w-9 h-9 rounded-full bg-[#00a884] flex items-center justify-center text-white shadow-md">
-              <MessageSquare className="w-5 h-5 fill-current" />
+      <div className="px-4 py-3 bg-[#202c33] border-b border-[#222e35] flex items-center justify-between">
+        {/* User Avatar with Profile trigger */}
+        <div
+          onClick={() => setIsProfileModalOpen(true)}
+          className="flex items-center gap-3 cursor-pointer group"
+          title="Click to view or edit profile"
+        >
+          <div className="relative shrink-0">
+            <div className="w-10 h-10 rounded-full bg-[#111b21] border border-[#222e35] overflow-hidden flex items-center justify-center font-bold text-[#e9edef] group-hover:ring-2 group-hover:ring-[#00a884] transition">
+              {userProfile.avatar_url ? (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img
+                  src={userProfile.avatar_url}
+                  alt={userProfile.username}
+                  className="w-full h-full object-cover"
+                />
+              ) : (
+                userProfile.username.charAt(0).toUpperCase()
+              )}
             </div>
-            <h1 className="font-bold text-base text-[#e9edef] tracking-tight">
-              PulseChat
-            </h1>
+            <span className="absolute bottom-0 right-0 w-2.5 h-2.5 rounded-full bg-[#25d366] ring-2 ring-[#202c33]" />
           </div>
-          <button
-            onClick={handleSignOut}
-            className="p-2 text-[#8696a0] hover:text-rose-400 hover:bg-[#111b21] rounded-full transition cursor-pointer"
-            title="Log Out"
-          >
-            <LogOut className="w-4 h-4" />
-          </button>
+          <span className="font-semibold text-sm text-[#e9edef] group-hover:text-[#00a884] transition truncate max-w-[120px]">
+            {userProfile.username}
+          </span>
         </div>
 
-        {/* WhatsApp-styled Search Input */}
+        {/* WhatsApp Top Right Action Icons */}
+        <div className="flex items-center gap-1 text-[#aebac1] relative" ref={menuRef}>
+          <button
+            onClick={() => setActiveFilter(activeFilter === 'unread' ? 'all' : 'unread')}
+            className={`p-2 rounded-full hover:text-[#e9edef] hover:bg-[#111b21] transition cursor-pointer ${
+              activeFilter === 'unread' ? 'text-[#00a884]' : ''
+            }`}
+            title="Status / Stories"
+          >
+            <CircleDashed className="w-5 h-5" />
+          </button>
+
+          <button
+            onClick={() => {
+              const searchInput = document.getElementById('wa-user-search');
+              searchInput?.focus();
+            }}
+            className="p-2 rounded-full hover:text-[#e9edef] hover:bg-[#111b21] transition cursor-pointer"
+            title="New Chat"
+          >
+            <SquarePen className="w-5 h-5" />
+          </button>
+
+          {/* 3-dots Menu Button */}
+          <button
+            onClick={() => setShowMenuDropdown((prev) => !prev)}
+            className="p-2 rounded-full hover:text-[#e9edef] hover:bg-[#111b21] transition cursor-pointer"
+            title="Menu"
+          >
+            <MoreVertical className="w-5 h-5" />
+          </button>
+
+          {/* 3-dots Dropdown Menu */}
+          {showMenuDropdown && (
+            <div className="absolute right-0 top-11 z-50 w-48 bg-[#202c33] border border-[#222e35] rounded-xl shadow-2xl py-2 animate-scale-in text-sm text-[#e9edef]">
+              <button
+                onClick={() => {
+                  setShowMenuDropdown(false);
+                  setIsProfileModalOpen(true);
+                }}
+                className="w-full px-4 py-2.5 text-left hover:bg-[#111b21] transition flex items-center gap-2.5 cursor-pointer"
+              >
+                <Camera className="w-4 h-4 text-[#00a884]" />
+                <span>Profile Settings</span>
+              </button>
+
+              <button
+                onClick={() => {
+                  setShowMenuDropdown(false);
+                  setActiveFilter('unread');
+                }}
+                className="w-full px-4 py-2.5 text-left hover:bg-[#111b21] transition flex items-center gap-2.5 cursor-pointer"
+              >
+                <MessageSquare className="w-4 h-4 text-[#00a884]" />
+                <span>Unread Chats</span>
+              </button>
+
+              <div className="my-1 border-t border-[#222e35]" />
+
+              <button
+                onClick={() => {
+                  setShowMenuDropdown(false);
+                  handleSignOut();
+                }}
+                className="w-full px-4 py-2.5 text-left text-rose-400 hover:bg-rose-500/10 transition flex items-center gap-2.5 cursor-pointer"
+              >
+                <LogOut className="w-4 h-4" />
+                <span>Log out</span>
+              </button>
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* WhatsApp Search and Filter Chips Bar */}
+      <div className="p-3 bg-[#111b21] border-b border-[#222e35] space-y-2.5">
+        {/* Search Input */}
         <div className="relative">
           <Search className="w-4 h-4 absolute left-3.5 top-1/2 -translate-y-1/2 text-[#8696a0]" />
           <input
+            id="wa-user-search"
             type="text"
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
             placeholder="Search or start new chat"
-            className="w-full bg-[#111b21] border border-transparent rounded-lg pl-10 pr-4 py-2 text-xs text-[#e9edef] placeholder-[#8696a0] focus:outline-none focus:border-[#00a884] transition"
+            className="w-full bg-[#202c33] border border-transparent rounded-lg pl-10 pr-9 py-2 text-xs text-[#e9edef] placeholder-[#8696a0] focus:outline-none focus:border-[#00a884] transition"
           />
+          {searchQuery && (
+            <button
+              onClick={() => setSearchQuery('')}
+              className="absolute right-3 top-1/2 -translate-y-1/2 text-[#8696a0] hover:text-[#e9edef] p-0.5 cursor-pointer"
+            >
+              <X className="w-3.5 h-3.5" />
+            </button>
+          )}
         </div>
+
+        {/* WhatsApp Filter Chips (All, Unread, Favorites) */}
+        {!searchQuery.trim() && (
+          <div className="flex items-center gap-2 pt-0.5">
+            <button
+              onClick={() => setActiveFilter('all')}
+              className={`px-3 py-1 rounded-full text-xs font-medium transition cursor-pointer ${
+                activeFilter === 'all'
+                  ? 'bg-[#00a884] text-white shadow-sm'
+                  : 'bg-[#202c33] text-[#8696a0] hover:text-[#e9edef] hover:bg-[#2a3942]'
+              }`}
+            >
+              All
+            </button>
+
+            <button
+              onClick={() => setActiveFilter('unread')}
+              className={`px-3 py-1 rounded-full text-xs font-medium transition cursor-pointer flex items-center gap-1.5 ${
+                activeFilter === 'unread'
+                  ? 'bg-[#00a884] text-white shadow-sm'
+                  : 'bg-[#202c33] text-[#8696a0] hover:text-[#e9edef] hover:bg-[#2a3942]'
+              }`}
+            >
+              <span>Unread</span>
+              {totalUnreadCount > 0 && (
+                <span
+                  className={`text-[10px] px-1.5 py-0.2 rounded-full font-bold ${
+                    activeFilter === 'unread'
+                      ? 'bg-black/30 text-white'
+                      : 'bg-[#00a884] text-white'
+                  }`}
+                >
+                  {totalUnreadCount}
+                </span>
+              )}
+            </button>
+          </div>
+        )}
       </div>
 
-      {/* Main Content: Search Results OR Conversation List */}
-      <div className="flex-1 overflow-y-auto divide-y divide-[#222e35]/50">
+      {/* Main Content: Search Results OR Filtered Conversation List */}
+      <div className="flex-1 overflow-y-auto divide-y divide-[#222e35]/40">
         {searchQuery.trim() ? (
           <div className="py-2">
             <div className="px-4 py-1.5 text-[11px] font-semibold tracking-wider uppercase text-[#00a884] flex items-center gap-1.5">
@@ -329,20 +492,28 @@ export const UserList: React.FC<UserListProps> = ({ currentUser, isOnline }) => 
                 <div className="w-5 h-5 border-2 border-[#00a884] border-t-transparent rounded-full animate-spin" />
                 <span>Loading chats...</span>
               </div>
-            ) : conversations.length === 0 ? (
+            ) : filteredConversations.length === 0 ? (
               <div className="p-8 text-center text-[#8696a0] text-xs">
                 <Users className="w-8 h-8 mx-auto mb-2 text-[#8696a0]/50" />
-                <p className="font-medium text-[#e9edef]">No chats yet</p>
+                <p className="font-medium text-[#e9edef]">
+                  {activeFilter === 'unread' ? 'No unread chats' : 'No chats yet'}
+                </p>
                 <p className="mt-1">
-                  Search a username above to start a conversation!
+                  {activeFilter === 'unread'
+                    ? 'You are all caught up!'
+                    : 'Search a username above to start a conversation!'}
                 </p>
               </div>
             ) : (
-              conversations.map((conv) => {
+              filteredConversations.map((conv) => {
                 const other = conv.other_user;
                 if (!other) return null;
                 const online = isOnline(other.id);
                 const isActive = pathname === `/chat/${conv.id}`;
+
+                const isVoiceNote =
+                  conv.last_message?.file_type?.startsWith('audio/') ||
+                  conv.last_message?.file_name?.startsWith('voice_note_');
 
                 return (
                   <Link
@@ -405,12 +576,21 @@ export const UserList: React.FC<UserListProps> = ({ currentUser, isOnline }) => 
                                 )}
                               </span>
                             )}
-                          <p className="truncate">
-                            {conv.last_message
-                              ? conv.last_message.file_url
-                                ? '📎 Attachment'
-                                : conv.last_message.content
-                              : 'Chat started'}
+                          <p className="truncate flex items-center gap-1">
+                            {isVoiceNote ? (
+                              <span className="flex items-center gap-1 text-[#00a884]">
+                                <Mic className="w-3.5 h-3.5" />
+                                <span>Voice message</span>
+                              </span>
+                            ) : conv.last_message ? (
+                              conv.last_message.file_url ? (
+                                '📎 Attachment'
+                              ) : (
+                                conv.last_message.content
+                              )
+                            ) : (
+                              'Chat started'
+                            )}
                           </p>
                         </div>
 
@@ -427,42 +607,6 @@ export const UserList: React.FC<UserListProps> = ({ currentUser, isOnline }) => 
             )}
           </div>
         )}
-      </div>
-
-      {/* WhatsApp Profile Footer */}
-      <div
-        onClick={() => setIsProfileModalOpen(true)}
-        className="p-3 bg-[#202c33] border-t border-[#222e35] flex items-center gap-3 cursor-pointer hover:bg-[#2a3942]/60 transition group select-none"
-        title="Click to view or change profile photo"
-      >
-        <div className="relative shrink-0">
-          <div className="w-10 h-10 rounded-full bg-[#111b21] border border-[#222e35] overflow-hidden flex items-center justify-center font-bold text-[#e9edef] group-hover:ring-2 group-hover:ring-[#00a884] transition">
-            {userProfile.avatar_url ? (
-              // eslint-disable-next-line @next/next/no-img-element
-              <img
-                src={userProfile.avatar_url}
-                alt=""
-                className="w-full h-full object-cover"
-              />
-            ) : (
-              userProfile.username.charAt(0).toUpperCase()
-            )}
-          </div>
-          <span className="absolute bottom-0 right-0 w-2.5 h-2.5 rounded-full bg-[#25d366] ring-2 ring-[#202c33]" />
-          {/* Subtle camera icon on hover */}
-          <div className="absolute inset-0 rounded-full bg-black/40 opacity-0 group-hover:opacity-100 flex items-center justify-center transition-opacity">
-            <Camera className="w-3.5 h-3.5 text-white" />
-          </div>
-        </div>
-
-        <div className="flex-1 min-w-0">
-          <p className="text-xs font-semibold text-[#e9edef] truncate group-hover:text-[#00a884] transition">
-            {userProfile.username}
-          </p>
-          <p className="text-[11px] text-[#8696a0] flex items-center gap-1 font-medium">
-            Tap to edit profile
-          </p>
-        </div>
       </div>
 
       {/* Profile Picture & Details Modal */}

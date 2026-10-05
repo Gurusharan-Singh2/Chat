@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useRef, useEffect, useMemo } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import { Profile, Message } from '@/lib/types';
 import { useChat } from '@/hooks/useChat';
 import { MessageBubble } from './MessageBubble';
@@ -15,6 +15,10 @@ import {
   Loader2,
   Lock,
   ChevronDown,
+  Smile,
+  Mic,
+  Trash2,
+  Check,
 } from 'lucide-react';
 import Link from 'next/link';
 
@@ -60,6 +64,13 @@ function getDateSeparatorLabel(isoString: string): string {
   }
 }
 
+const POPULAR_EMOJIS = [
+  '😀', '😂', '🤣', '😍', '🥰', '😎', '🤔', '🥳',
+  '👍', '👎', '❤️', '🔥', '🎉', '👏', '🙌', '💯',
+  '🚀', '✨', '🙏', '💖', '😢', '😮', '😴', '🍕',
+  '☕', '💪', '🤝', '😉', '😇', '🤩', '😜', '😭',
+];
+
 export const ChatWindow: React.FC<ChatWindowProps> = ({
   conversationId,
   currentUser,
@@ -82,13 +93,24 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({
   const [isSending, setIsSending] = useState(false);
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [filePreviewUrl, setFilePreviewUrl] = useState<string | null>(null);
-  const [isUploadingFile, setIsUploadingFile] = useState(false);
   const [showScrollBottom, setShowScrollBottom] = useState(false);
+  const [showEmojiPicker, setShowEmojiPicker] = useState(false);
+
+  // Live Voice Note Recording States
+  const [isRecordingVoice, setIsRecordingVoice] = useState(false);
+  const [recordingDuration, setRecordingDuration] = useState(0);
 
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const typingTimerRef = useRef<NodeJS.Timeout | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  // Audio recording refs
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+  const audioChunksRef = useRef<Blob[]>([]);
+  const recordingTimerRef = useRef<NodeJS.Timeout | null>(null);
+  const streamRef = useRef<MediaStream | null>(null);
 
   // Monitor scroll for floating down button
   const handleScroll = () => {
@@ -102,6 +124,18 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages.length, isOtherUserTyping]);
+
+  // Clean up audio recorder on unmount
+  useEffect(() => {
+    return () => {
+      if (recordingTimerRef.current) {
+        clearInterval(recordingTimerRef.current);
+      }
+      if (streamRef.current) {
+        streamRef.current.getTracks().forEach((track) => track.stop());
+      }
+    };
+  }, []);
 
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     setInputContent(e.target.value);
@@ -160,13 +194,12 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({
 
       // If user is attaching a file, upload to Supabase Storage first
       if (selectedFile) {
-        setIsUploadingFile(true);
         attachmentData = await uploadAttachment(selectedFile);
-        setIsUploadingFile(false);
       }
 
       const text = inputContent;
       setInputContent('');
+      setShowEmojiPicker(false);
       removeSelectedFile();
 
       await sendMessage(text, attachmentData);
@@ -174,16 +207,106 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({
       console.error('Failed to send message:', err);
     } finally {
       setIsSending(false);
-      setIsUploadingFile(false);
     }
   };
+
+  const handleSelectEmoji = (emoji: string) => {
+    setInputContent((prev) => prev + emoji);
+    inputRef.current?.focus();
+  };
+
+  // --------------------------------------------------------------------------
+  // WhatsApp Voice Note Recording Logic
+  // --------------------------------------------------------------------------
+  const startVoiceRecording = async () => {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      streamRef.current = stream;
+      const mediaRecorder = new MediaRecorder(stream);
+      mediaRecorderRef.current = mediaRecorder;
+      audioChunksRef.current = [];
+
+      mediaRecorder.ondataavailable = (event) => {
+        if (event.data.size > 0) {
+          audioChunksRef.current.push(event.data);
+        }
+      };
+
+      mediaRecorder.start();
+      setIsRecordingVoice(true);
+      setRecordingDuration(0);
+
+      recordingTimerRef.current = setInterval(() => {
+        setRecordingDuration((prev) => prev + 1);
+      }, 1000);
+    } catch (err) {
+      console.error('Microphone permission error:', err);
+      alert('Microphone access is required to record WhatsApp voice notes.');
+    }
+  };
+
+  const cancelVoiceRecording = () => {
+    if (recordingTimerRef.current) {
+      clearInterval(recordingTimerRef.current);
+    }
+    if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
+      mediaRecorderRef.current.stop();
+    }
+    if (streamRef.current) {
+      streamRef.current.getTracks().forEach((track) => track.stop());
+    }
+    setIsRecordingVoice(false);
+    setRecordingDuration(0);
+    audioChunksRef.current = [];
+  };
+
+  const finishVoiceRecording = async () => {
+    if (!mediaRecorderRef.current) return;
+
+    if (recordingTimerRef.current) {
+      clearInterval(recordingTimerRef.current);
+    }
+
+    mediaRecorderRef.current.onstop = async () => {
+      try {
+        const audioBlob = new Blob(audioChunksRef.current, { type: 'audio/webm' });
+        if (streamRef.current) {
+          streamRef.current.getTracks().forEach((track) => track.stop());
+        }
+        setIsRecordingVoice(false);
+        setRecordingDuration(0);
+
+        if (audioBlob.size > 0) {
+          setIsSending(true);
+          const fileName = `voice_note_${Date.now()}.webm`;
+          const audioFile = new File([audioBlob], fileName, { type: 'audio/webm' });
+          const attachmentData = await uploadAttachment(audioFile);
+          await sendMessage('', attachmentData);
+        }
+      } catch (err) {
+        console.error('Failed to send voice note:', err);
+      } finally {
+        setIsSending(false);
+      }
+    };
+
+    mediaRecorderRef.current.stop();
+  };
+
+  const formatRecordingTime = (secs: number) => {
+    const mins = Math.floor(secs / 60);
+    const remaining = secs % 60;
+    return `${mins}:${remaining < 10 ? '0' : ''}${remaining}`;
+  };
+
+  const hasContent = inputContent.trim().length > 0 || selectedFile !== null;
 
   return (
     <div className="flex flex-col h-full w-full min-h-0 bg-[#0b141a] overflow-hidden select-none">
       {/* WhatsApp Header */}
       <div className="flex items-center justify-between px-3 sm:px-4 py-2.5 bg-[#202c33] border-b border-[#222e35] shrink-0 z-20 shadow-md">
         <div className="flex items-center gap-2.5 min-w-0">
-          {/* Mobile Back Button to return to conversation list */}
+          {/* Mobile Back Button */}
           <Link
             href="/chat"
             className="md:hidden p-2 -ml-1 text-[#aebac1] hover:text-[#e9edef] rounded-full active:bg-[#111b21] transition"
@@ -240,7 +363,7 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({
             title="Voice Call"
             aria-label="Voice Call"
           >
-            <Phone className="w-4 h-4 sm:w-4 sm:h-4 text-[#00a884]" />
+            <Phone className="w-4 h-4 text-[#00a884]" />
             <span className="hidden sm:inline">Voice</span>
           </button>
 
@@ -250,7 +373,7 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({
             title="Video Call"
             aria-label="Video Call"
           >
-            <Video className="w-4 h-4 sm:w-4 sm:h-4 text-[#00a884]" />
+            <Video className="w-4 h-4 text-[#00a884]" />
             <span className="hidden sm:inline">Video</span>
           </button>
         </div>
@@ -264,7 +387,7 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({
       >
         {/* WhatsApp End-to-End Encryption Banner */}
         <div className="flex justify-center mb-4 select-none px-4">
-          <div className="bg-[#182229]/80 border border-[#222e35]/60 rounded-xl px-3.5 py-2 max-w-sm text-center shadow-sm">
+          <div className="bg-[#182229]/90 border border-[#222e35]/60 rounded-xl px-3.5 py-2 max-w-sm text-center shadow-sm">
             <p className="text-[11px] text-[#ffd279]/90 flex items-center justify-center gap-1.5 font-medium leading-relaxed">
               <Lock className="w-3.5 h-3.5 text-[#ffd279] shrink-0" />
               Messages and calls are end-to-end encrypted. No one outside of this chat can read or listen to them.
@@ -284,7 +407,7 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({
             </div>
             <p className="text-sm font-medium text-[#e9edef]">No messages yet</p>
             <p className="text-xs text-[#8696a0] mt-1 max-w-xs">
-              Say hello or share files with {otherUser.username}!
+              Say hello or send a voice note to {otherUser.username}!
             </p>
           </div>
         ) : (
@@ -301,7 +424,7 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({
               <React.Fragment key={message.id}>
                 {showDateSeparator && currentDateLabel && (
                   <div className="flex justify-center my-3 sticky top-2 z-10 select-none pointer-events-none">
-                    <span className="bg-[#182229]/90 backdrop-blur-sm text-[#8696a0] text-[11px] font-medium px-3 py-1 rounded-lg uppercase tracking-wider shadow-sm border border-[#222e35]/50 pointer-events-auto">
+                    <span className="bg-[#182229]/95 backdrop-blur-sm text-[#8696a0] text-[11px] font-medium px-3 py-1 rounded-lg uppercase tracking-wider shadow-sm border border-[#222e35]/50 pointer-events-auto">
                       {currentDateLabel}
                     </span>
                   </div>
@@ -387,55 +510,154 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({
         </div>
       )}
 
+      {/* Emoji Quick Picker Drawer */}
+      {showEmojiPicker && (
+        <div className="p-3 bg-[#202c33] border-t border-[#222e35] animate-fade-in z-20">
+          <div className="flex items-center justify-between mb-2">
+            <span className="text-[11px] font-semibold text-[#8696a0] uppercase tracking-wider">
+              Popular Emojis
+            </span>
+            <button
+              onClick={() => setShowEmojiPicker(false)}
+              className="text-[#8696a0] hover:text-[#e9edef] p-1"
+            >
+              <X className="w-3.5 h-3.5" />
+            </button>
+          </div>
+          <div className="grid grid-cols-8 gap-2 text-xl select-none">
+            {POPULAR_EMOJIS.map((emoji) => (
+              <button
+                key={emoji}
+                type="button"
+                onClick={() => handleSelectEmoji(emoji)}
+                className="p-1.5 rounded-lg hover:bg-[#111b21] transition active:scale-125 cursor-pointer text-center"
+              >
+                {emoji}
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+
       {/* WhatsApp Input Bar */}
       <div className="p-2 sm:p-3 bg-[#202c33] border-t border-[#222e35] shrink-0 sticky bottom-0 z-30 pb-[max(0.75rem,env(safe-area-inset-bottom))]">
-        <form onSubmit={handleSendMessage} className="flex items-center gap-2">
-          {/* Hidden file input */}
-          <input
-            ref={fileInputRef}
-            type="file"
-            onChange={handleFileSelect}
-            className="hidden"
-            id="file-upload"
-          />
+        {isRecordingVoice ? (
+          /* Live WhatsApp Voice Note Recording View */
+          <div className="flex items-center justify-between gap-3 animate-fade-in px-2 py-1">
+            <div className="flex items-center gap-3">
+              {/* Blinking Red Recording Dot */}
+              <span className="w-3 h-3 rounded-full bg-rose-500 animate-ping" />
+              <span className="text-xs font-semibold text-rose-400">
+                Recording...
+              </span>
+              <span className="text-sm font-mono text-[#e9edef]">
+                {formatRecordingTime(recordingDuration)}
+              </span>
+            </div>
 
-          {/* Attachment Paperclip Button */}
-          <label
-            htmlFor="file-upload"
-            className="p-2.5 rounded-full text-[#8696a0] hover:text-[#e9edef] hover:bg-[#111b21] transition cursor-pointer shrink-0 active:scale-95"
-            title="Attach file or photo"
-          >
-            <Paperclip className="w-5 h-5 -rotate-45" />
-          </label>
+            <div className="flex items-center gap-2">
+              {/* Cancel Button */}
+              <button
+                type="button"
+                onClick={cancelVoiceRecording}
+                className="p-2 rounded-full text-[#8696a0] hover:text-rose-400 hover:bg-black/20 transition cursor-pointer"
+                title="Discard voice note"
+              >
+                <Trash2 className="w-5 h-5" />
+              </button>
 
-          {/* Text Input */}
-          <input
-            type="text"
-            value={inputContent}
-            onChange={handleInputChange}
-            placeholder={
-              selectedFile
-                ? 'Add a caption...'
-                : `Type a message...`
-            }
-            className="flex-1 bg-[#2a3942] border-none rounded-xl px-4 py-2.5 text-sm text-[#e9edef] placeholder-[#8696a0] focus:outline-none focus:ring-1 focus:ring-[#00a884] transition"
-          />
+              {/* Finish & Send Voice Note Button */}
+              <button
+                type="button"
+                onClick={finishVoiceRecording}
+                className="p-2.5 rounded-full bg-[#00a884] hover:bg-[#02906f] text-white shadow-lg shadow-[#00a884]/30 transition cursor-pointer active:scale-95"
+                title="Send voice note"
+              >
+                {isSending ? (
+                  <Loader2 className="w-5 h-5 animate-spin" />
+                ) : (
+                  <Check className="w-5 h-5" />
+                )}
+              </button>
+            </div>
+          </div>
+        ) : (
+          /* Standard WhatsApp Message Input Bar */
+          <form onSubmit={handleSendMessage} className="flex items-center gap-2">
+            {/* Hidden file input */}
+            <input
+              ref={fileInputRef}
+              type="file"
+              onChange={handleFileSelect}
+              className="hidden"
+              id="file-upload"
+            />
 
-          {/* Send Button */}
-          <button
-            type="submit"
-            disabled={(!inputContent.trim() && !selectedFile) || isSending}
-            className="p-2.5 sm:px-4 sm:py-2.5 rounded-full sm:rounded-xl bg-[#00a884] hover:bg-[#02906f] disabled:opacity-40 disabled:hover:bg-[#00a884] text-white text-sm font-semibold flex items-center justify-center gap-1.5 transition cursor-pointer disabled:cursor-not-allowed shadow-md shadow-[#00a884]/20 active:scale-95 shrink-0"
-            aria-label="Send message"
-          >
-            {isSending ? (
-              <Loader2 className="w-4 h-4 animate-spin" />
+            {/* Emoji Toggle Button */}
+            <button
+              type="button"
+              onClick={() => setShowEmojiPicker((prev) => !prev)}
+              className={`p-2 rounded-full transition cursor-pointer shrink-0 active:scale-95 ${
+                showEmojiPicker
+                  ? 'text-[#00a884] bg-[#111b21]'
+                  : 'text-[#8696a0] hover:text-[#e9edef] hover:bg-[#111b21]'
+              }`}
+              title="Emoji"
+            >
+              <Smile className="w-5 h-5" />
+            </button>
+
+            {/* Attachment Paperclip Button */}
+            <label
+              htmlFor="file-upload"
+              className="p-2 rounded-full text-[#8696a0] hover:text-[#e9edef] hover:bg-[#111b21] transition cursor-pointer shrink-0 active:scale-95"
+              title="Attach file, photo or audio"
+            >
+              <Paperclip className="w-5 h-5 -rotate-45" />
+            </label>
+
+            {/* Text Input */}
+            <input
+              ref={inputRef}
+              type="text"
+              value={inputContent}
+              onChange={handleInputChange}
+              placeholder={
+                selectedFile
+                  ? 'Add a caption...'
+                  : 'Type a message'
+              }
+              className="flex-1 bg-[#2a3942] border-none rounded-xl px-4 py-2.5 text-sm text-[#e9edef] placeholder-[#8696a0] focus:outline-none focus:ring-1 focus:ring-[#00a884] transition"
+            />
+
+            {/* WhatsApp Dynamic Button: Voice Note Mic (when empty) OR Send Arrow (when typing) */}
+            {hasContent ? (
+              <button
+                type="submit"
+                disabled={isSending}
+                className="p-2.5 rounded-full bg-[#00a884] hover:bg-[#02906f] text-white text-sm font-semibold flex items-center justify-center transition cursor-pointer shadow-md shadow-[#00a884]/25 active:scale-95 shrink-0"
+                aria-label="Send message"
+                title="Send"
+              >
+                {isSending ? (
+                  <Loader2 className="w-5 h-5 animate-spin" />
+                ) : (
+                  <Send className="w-5 h-5 ml-0.5" />
+                )}
+              </button>
             ) : (
-              <Send className="w-4 h-4" />
+              <button
+                type="button"
+                onClick={startVoiceRecording}
+                className="p-2.5 rounded-full bg-[#00a884] hover:bg-[#02906f] text-white flex items-center justify-center transition cursor-pointer shadow-md shadow-[#00a884]/25 active:scale-95 shrink-0"
+                aria-label="Record voice note"
+                title="Hold or click to record voice note"
+              >
+                <Mic className="w-5 h-5" />
+              </button>
             )}
-            <span className="hidden sm:inline">Send</span>
-          </button>
-        </form>
+          </form>
+        )}
       </div>
     </div>
   );
