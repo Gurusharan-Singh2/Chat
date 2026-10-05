@@ -3,7 +3,7 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { createClient } from '@/lib/supabase/client';
 import { Message, Profile } from '@/lib/types';
-import { ringtones } from '@/lib/webrtc/audio';
+import { playSentTone, playReceivedTone } from '@/lib/webrtc/audio';
 
 export function useChat(
   conversationId: string | null,
@@ -100,7 +100,9 @@ export function useChat(
 
           // Play incoming sound if from other user
           if (currentUser && newMsg.sender_id !== currentUser.id) {
-            ringtones.playReceivedTone();
+            try {
+              playReceivedTone();
+            } catch {}
           }
 
           setMessages((prev) => {
@@ -306,7 +308,9 @@ export function useChat(
       setMessages((prev) => [...prev, optimisticMessage]);
 
       // 3. Play WhatsApp sent pop tone
-      ringtones.playSentTone();
+      try {
+        playSentTone();
+      } catch {}
 
       // 4. Reset typing status immediately
       sendTyping(false);
