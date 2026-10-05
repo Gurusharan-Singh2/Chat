@@ -1,5 +1,5 @@
 /**
- * Generates synthetic call audio tones (ringing tone, dial tone, hangup beep)
+ * Generates synthetic call audio tones & WhatsApp message sound effects
  * using the Web Audio API without needing external audio files.
  */
 
@@ -10,13 +10,76 @@ class RingtoneManager {
 
   private initContext() {
     if (!this.ctx && typeof window !== 'undefined') {
-      const AudioCtx = window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
+      const AudioCtx =
+        window.AudioContext ||
+        (window as unknown as { webkitAudioContext: typeof AudioContext })
+          .webkitAudioContext;
       if (AudioCtx) {
         this.ctx = new AudioCtx();
       }
     }
     if (this.ctx && this.ctx.state === 'suspended') {
       this.ctx.resume().catch(() => {});
+    }
+  }
+
+  /**
+   * Play WhatsApp-style crisp message sent pop
+   */
+  public playSentTone() {
+    try {
+      this.initContext();
+      if (!this.ctx) return;
+
+      const osc = this.ctx.createOscillator();
+      const gain = this.ctx.createGain();
+
+      osc.type = 'sine';
+      osc.frequency.setValueAtTime(850, this.ctx.currentTime);
+      osc.frequency.exponentialRampToValueAtTime(1150, this.ctx.currentTime + 0.04);
+
+      gain.gain.setValueAtTime(0.08, this.ctx.currentTime);
+      gain.gain.exponentialRampToValueAtTime(0.001, this.ctx.currentTime + 0.05);
+
+      osc.connect(gain);
+      gain.connect(this.ctx.destination);
+
+      osc.start();
+      osc.stop(this.ctx.currentTime + 0.05);
+    } catch {
+      // Audio autoplay policy catch
+    }
+  }
+
+  /**
+   * Play WhatsApp-style incoming message chime
+   */
+  public playReceivedTone() {
+    try {
+      this.initContext();
+      if (!this.ctx) return;
+
+      const osc1 = this.ctx.createOscillator();
+      const osc2 = this.ctx.createOscillator();
+      const gain = this.ctx.createGain();
+
+      osc1.type = 'triangle';
+      osc2.type = 'sine';
+
+      osc1.frequency.setValueAtTime(620, this.ctx.currentTime);
+      osc1.frequency.setValueAtTime(880, this.ctx.currentTime + 0.05);
+
+      gain.gain.setValueAtTime(0.1, this.ctx.currentTime);
+      gain.gain.exponentialRampToValueAtTime(0.001, this.ctx.currentTime + 0.12);
+
+      osc1.connect(gain);
+      osc2.connect(gain);
+      gain.connect(this.ctx.destination);
+
+      osc1.start();
+      osc1.stop(this.ctx.currentTime + 0.12);
+    } catch {
+      // Audio autoplay policy catch
     }
   }
 

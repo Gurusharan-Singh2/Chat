@@ -52,46 +52,53 @@ export const UserList: React.FC<UserListProps> = ({ currentUser, isOnline }) => 
         return;
       }
 
+      const conversationIds = data.map((conv) => conv.id);
       const otherUserIds = data.map((conv) =>
         conv.user1_id === currentUser.id ? conv.user2_id : conv.user1_id
       );
 
-      const { data: profilesData } = await supabase
-        .from('profiles')
-        .select('*')
-        .in('id', otherUserIds);
-
-      const profileMap = new Map<string, Profile>();
-      profilesData?.forEach((p) => profileMap.set(p.id, p));
-
-      const conversationPromises = data.map(async (conv) => {
-        const otherId =
-          conv.user1_id === currentUser.id ? conv.user2_id : conv.user1_id;
-
-        const { data: lastMsgData } = await supabase
+      // Fetch profiles and recent messages in 2 fast parallel batch queries
+      const [profilesRes, messagesRes] = await Promise.all([
+        supabase.from('profiles').select('*').in('id', otherUserIds),
+        supabase
           .from('messages')
           .select('*')
-          .eq('conversation_id', conv.id)
-          .order('created_at', { ascending: false })
-          .limit(1)
-          .maybeSingle();
+          .in('conversation_id', conversationIds)
+          .order('created_at', { ascending: false }),
+      ]);
 
-        const { count: unreadCount } = await supabase
-          .from('messages')
-          .select('*', { count: 'exact', head: true })
-          .eq('conversation_id', conv.id)
-          .neq('sender_id', currentUser.id)
-          .is('read_at', null);
+      const profileMap = new Map<string, Profile>();
+      profilesRes.data?.forEach((p) => profileMap.set(p.id, p));
+
+      // Group messages by conversation to calculate last message and unread count instantly
+      const lastMessageMap = new Map<string, any>();
+      const unreadCountMap = new Map<string, number>();
+
+      messagesRes.data?.forEach((msg) => {
+        // First message seen is the latest message due to descending sort
+        if (!lastMessageMap.has(msg.conversation_id)) {
+          lastMessageMap.set(msg.conversation_id, msg);
+        }
+
+        // Count unread incoming messages
+        if (msg.sender_id !== currentUser.id && !msg.read_at) {
+          const currentCount = unreadCountMap.get(msg.conversation_id) || 0;
+          unreadCountMap.set(msg.conversation_id, currentCount + 1);
+        }
+      });
+
+      const populated: Conversation[] = data.map((conv) => {
+        const otherId =
+          conv.user1_id === currentUser.id ? conv.user2_id : conv.user1_id;
 
         return {
           ...conv,
           other_user: profileMap.get(otherId),
-          last_message: lastMsgData || undefined,
-          unread_count: unreadCount || 0,
-        } as Conversation;
+          last_message: lastMessageMap.get(conv.id) || undefined,
+          unread_count: unreadCountMap.get(conv.id) || 0,
+        };
       });
 
-      const populated = await Promise.all(conversationPromises);
       setConversations(populated);
     } catch (err) {
       console.error('Failed to load conversations:', err);

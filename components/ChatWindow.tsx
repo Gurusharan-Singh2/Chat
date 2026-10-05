@@ -1,7 +1,7 @@
 'use client';
 
-import React, { useState, useRef, useEffect } from 'react';
-import { Profile } from '@/lib/types';
+import React, { useState, useRef, useEffect, useMemo } from 'react';
+import { Profile, Message } from '@/lib/types';
 import { useChat } from '@/hooks/useChat';
 import { MessageBubble } from './MessageBubble';
 import {
@@ -13,6 +13,8 @@ import {
   X,
   FileText,
   Loader2,
+  Lock,
+  ChevronDown,
 } from 'lucide-react';
 import Link from 'next/link';
 
@@ -22,6 +24,40 @@ interface ChatWindowProps {
   otherUser: Profile;
   isOnline: boolean;
   onStartCall: (targetUser: Profile, isVideo: boolean) => void;
+  initialMessages?: Message[];
+}
+
+function getDateSeparatorLabel(isoString: string): string {
+  try {
+    const msgDate = new Date(isoString);
+    const today = new Date();
+    const yesterday = new Date();
+    yesterday.setDate(today.getDate() - 1);
+
+    if (
+      msgDate.getDate() === today.getDate() &&
+      msgDate.getMonth() === today.getMonth() &&
+      msgDate.getFullYear() === today.getFullYear()
+    ) {
+      return 'TODAY';
+    }
+
+    if (
+      msgDate.getDate() === yesterday.getDate() &&
+      msgDate.getMonth() === yesterday.getMonth() &&
+      msgDate.getFullYear() === yesterday.getFullYear()
+    ) {
+      return 'YESTERDAY';
+    }
+
+    return msgDate.toLocaleDateString(undefined, {
+      day: 'numeric',
+      month: 'short',
+      year: msgDate.getFullYear() === today.getFullYear() ? undefined : 'numeric',
+    });
+  } catch {
+    return '';
+  }
 }
 
 export const ChatWindow: React.FC<ChatWindowProps> = ({
@@ -30,6 +66,7 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({
   otherUser,
   isOnline,
   onStartCall,
+  initialMessages = [],
 }) => {
   const {
     messages,
@@ -38,22 +75,32 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({
     sendMessage,
     uploadAttachment,
     sendTyping,
-  } = useChat(conversationId, currentUser);
+  } = useChat(conversationId, currentUser, initialMessages);
 
   const [inputContent, setInputContent] = useState('');
   const [isSending, setIsSending] = useState(false);
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [filePreviewUrl, setFilePreviewUrl] = useState<string | null>(null);
   const [isUploadingFile, setIsUploadingFile] = useState(false);
+  const [showScrollBottom, setShowScrollBottom] = useState(false);
 
+  const scrollContainerRef = useRef<HTMLDivElement>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const typingTimerRef = useRef<NodeJS.Timeout | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
+  // Monitor scroll for floating down button
+  const handleScroll = () => {
+    if (!scrollContainerRef.current) return;
+    const { scrollTop, scrollHeight, clientHeight } = scrollContainerRef.current;
+    const isUp = scrollHeight - scrollTop - clientHeight > 180;
+    setShowScrollBottom(isUp);
+  };
+
   // Auto-scroll to bottom on messages update
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [messages, isOtherUserTyping]);
+  }, [messages.length, isOtherUserTyping]);
 
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     setInputContent(e.target.value);
@@ -209,14 +256,28 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({
       </div>
 
       {/* Messages Stream with WhatsApp Texture */}
-      <div className="flex-1 min-h-0 overflow-y-auto px-3 sm:px-6 py-4 space-y-1 wa-chat-bg">
+      <div
+        ref={scrollContainerRef}
+        onScroll={handleScroll}
+        className="flex-1 min-h-0 overflow-y-auto px-3 sm:px-6 py-4 space-y-1 wa-chat-bg relative"
+      >
+        {/* WhatsApp End-to-End Encryption Banner */}
+        <div className="flex justify-center mb-4 select-none px-4">
+          <div className="bg-[#182229]/80 border border-[#222e35]/60 rounded-xl px-3.5 py-2 max-w-sm text-center shadow-sm">
+            <p className="text-[11px] text-[#ffd279]/90 flex items-center justify-center gap-1.5 font-medium leading-relaxed">
+              <Lock className="w-3.5 h-3.5 text-[#ffd279] shrink-0" />
+              Messages and calls are end-to-end encrypted. No one outside of this chat can read or listen to them.
+            </p>
+          </div>
+        </div>
+
         {isLoading ? (
-          <div className="flex flex-col items-center justify-center h-full gap-2.5 text-[#8696a0]">
+          <div className="flex flex-col items-center justify-center h-48 gap-2.5 text-[#8696a0]">
             <Loader2 className="w-6 h-6 animate-spin text-[#00a884]" />
             <span className="text-xs">Loading messages...</span>
           </div>
         ) : messages.length === 0 ? (
-          <div className="flex flex-col items-center justify-center h-full text-center p-6 text-[#8696a0]">
+          <div className="flex flex-col items-center justify-center h-48 text-center p-6 text-[#8696a0]">
             <div className="w-12 h-12 rounded-2xl bg-[#111b21] border border-[#222e35] flex items-center justify-center text-[#00a884] mb-3 shadow-md">
               <Send className="w-5 h-5" />
             </div>
@@ -226,18 +287,33 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({
             </p>
           </div>
         ) : (
-          messages.map((message) => {
+          messages.map((message, index) => {
             const isCurrentUser = message.sender_id === currentUser.id;
+
+            // Date separator check
+            const prevMessage = index > 0 ? messages[index - 1] : null;
+            const currentDateLabel = getDateSeparatorLabel(message.created_at);
+            const prevDateLabel = prevMessage ? getDateSeparatorLabel(prevMessage.created_at) : null;
+            const showDateSeparator = !prevDateLabel || currentDateLabel !== prevDateLabel;
+
             return (
-              <MessageBubble
-                key={message.id}
-                message={message}
-                isCurrentUser={isCurrentUser}
-                senderName={isCurrentUser ? currentUser.username : otherUser.username}
-                senderAvatar={
-                  isCurrentUser ? currentUser.avatar_url : otherUser.avatar_url
-                }
-              />
+              <React.Fragment key={message.id}>
+                {showDateSeparator && currentDateLabel && (
+                  <div className="flex justify-center my-3 sticky top-2 z-10 select-none pointer-events-none">
+                    <span className="bg-[#182229]/90 backdrop-blur-sm text-[#8696a0] text-[11px] font-medium px-3 py-1 rounded-lg uppercase tracking-wider shadow-sm border border-[#222e35]/50 pointer-events-auto">
+                      {currentDateLabel}
+                    </span>
+                  </div>
+                )}
+                <MessageBubble
+                  message={message}
+                  isCurrentUser={isCurrentUser}
+                  senderName={isCurrentUser ? currentUser.username : otherUser.username}
+                  senderAvatar={
+                    isCurrentUser ? currentUser.avatar_url : otherUser.avatar_url
+                  }
+                />
+              </React.Fragment>
             );
           })
         )}
@@ -260,6 +336,18 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({
 
         <div ref={messagesEndRef} />
       </div>
+
+      {/* Floating Scroll to Bottom Button */}
+      {showScrollBottom && (
+        <button
+          onClick={() => messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })}
+          className="absolute right-4 bottom-20 z-30 p-2.5 rounded-full bg-[#202c33] border border-[#222e35] text-[#8696a0] hover:text-[#e9edef] hover:bg-[#2a3942] shadow-xl transition active:scale-95 cursor-pointer flex items-center justify-center animate-fade-in"
+          aria-label="Scroll to bottom"
+          title="Scroll to bottom"
+        >
+          <ChevronDown className="w-5 h-5" />
+        </button>
+      )}
 
       {/* Selected File Attachment Preview Bar */}
       {selectedFile && (

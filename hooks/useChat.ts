@@ -3,10 +3,15 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { createClient } from '@/lib/supabase/client';
 import { Message, Profile } from '@/lib/types';
+import { ringtones } from '@/lib/webrtc/audio';
 
-export function useChat(conversationId: string | null, currentUser: Profile | null) {
-  const [messages, setMessages] = useState<Message[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
+export function useChat(
+  conversationId: string | null,
+  currentUser: Profile | null,
+  initialMessages: Message[] = []
+) {
+  const [messages, setMessages] = useState<Message[]>(initialMessages);
+  const [isLoading, setIsLoading] = useState(initialMessages.length === 0 && !!conversationId);
   const [isOtherUserTyping, setIsOtherUserTyping] = useState(false);
   const typingTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const supabase = useMemo(() => createClient(), []);
@@ -30,7 +35,7 @@ export function useChat(conversationId: string | null, currentUser: Profile | nu
   }, [conversationId, currentUser?.id, supabase]);
 
   // --------------------------------------------------------------------------
-  // Step 2: Fetch Initial Messages
+  // Step 2: Fetch Initial Messages if not provided
   // --------------------------------------------------------------------------
   useEffect(() => {
     if (!conversationId) {
@@ -40,6 +45,15 @@ export function useChat(conversationId: string | null, currentUser: Profile | nu
     }
 
     let isMounted = true;
+
+    // If initial messages were already provided, just mark unread as read and return
+    if (initialMessages && initialMessages.length > 0) {
+      setMessages(initialMessages);
+      setIsLoading(false);
+      markMessagesAsRead();
+      return;
+    }
+
     setIsLoading(true);
 
     async function loadMessages() {
@@ -52,7 +66,6 @@ export function useChat(conversationId: string | null, currentUser: Profile | nu
       if (!error && data && isMounted) {
         setMessages(data as Message[]);
         setIsLoading(false);
-        // Mark all incoming messages as read
         markMessagesAsRead();
       } else if (isMounted) {
         setIsLoading(false);
@@ -64,10 +77,10 @@ export function useChat(conversationId: string | null, currentUser: Profile | nu
     return () => {
       isMounted = false;
     };
-  }, [conversationId, supabase, markMessagesAsRead]);
+  }, [conversationId, supabase, markMessagesAsRead, initialMessages]);
 
   // --------------------------------------------------------------------------
-  // Step 3: Realtime Postgres Changes Subscription
+  // Step 3: Realtime Postgres Changes Subscription (WhatsApp sounds & read ticks)
   // --------------------------------------------------------------------------
   useEffect(() => {
     if (!conversationId) return;
@@ -84,11 +97,32 @@ export function useChat(conversationId: string | null, currentUser: Profile | nu
         },
         async (payload) => {
           const newMsg = payload.new as Message;
+
+          // Play incoming sound if from other user
+          if (currentUser && newMsg.sender_id !== currentUser.id) {
+            ringtones.playReceivedTone();
+          }
+
           setMessages((prev) => {
-            // Avoid duplicate if optimistic insert was used
+            // Check if this matches a temporary optimistic message
+            const existingTempIndex = prev.findIndex(
+              (m) =>
+                m.id.startsWith('temp-') &&
+                m.sender_id === newMsg.sender_id &&
+                m.content === newMsg.content
+            );
+
+            if (existingTempIndex !== -1) {
+              const copy = [...prev];
+              copy[existingTempIndex] = newMsg;
+              return copy;
+            }
+
+            // Avoid duplicate if already in state
             if (prev.some((m) => m.id === newMsg.id)) {
               return prev;
             }
+
             return [...prev, newMsg];
           });
 
@@ -220,7 +254,7 @@ export function useChat(conversationId: string | null, currentUser: Profile | nu
   );
 
   // --------------------------------------------------------------------------
-  // Step 6: Send Message Action (Text & Attachments)
+  // Step 6: Send Message Action (Optimistic WhatsApp Instant Send)
   // --------------------------------------------------------------------------
   const sendMessage = useCallback(
     async (
@@ -236,29 +270,65 @@ export function useChat(conversationId: string | null, currentUser: Profile | nu
       if (!content.trim() && !attachment) return null;
 
       const trimmed = content.trim();
+      const messageText = trimmed || (attachment ? attachment.file_name : '');
+      const tempId = `temp-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
 
-      const { data, error } = await supabase
-        .from('messages')
-        .insert({
-          conversation_id: conversationId,
-          sender_id: currentUser.id,
-          content: trimmed || (attachment ? attachment.file_name : ''),
-          file_url: attachment?.file_url || null,
-          file_name: attachment?.file_name || null,
-          file_type: attachment?.file_type || null,
-          file_size: attachment?.file_size || null,
-        })
-        .select()
-        .single();
+      // 1. Create optimistic message
+      const optimisticMessage: Message = {
+        id: tempId,
+        conversation_id: conversationId,
+        sender_id: currentUser.id,
+        content: messageText,
+        file_url: attachment?.file_url || null,
+        file_name: attachment?.file_name || null,
+        file_type: attachment?.file_type || null,
+        file_size: attachment?.file_size || null,
+        created_at: new Date().toISOString(),
+        read_at: null,
+      };
 
-      if (error) {
-        console.error('Failed to send message:', error);
-        throw error;
-      }
+      // 2. Instantly append to state (0ms perceived latency!)
+      setMessages((prev) => [...prev, optimisticMessage]);
 
-      // Also reset typing status
+      // 3. Play WhatsApp sent pop tone
+      ringtones.playSentTone();
+
+      // 4. Reset typing status immediately
       sendTyping(false);
-      return data as Message;
+
+      try {
+        const { data, error } = await supabase
+          .from('messages')
+          .insert({
+            conversation_id: conversationId,
+            sender_id: currentUser.id,
+            content: messageText,
+            file_url: attachment?.file_url || null,
+            file_name: attachment?.file_name || null,
+            file_type: attachment?.file_type || null,
+            file_size: attachment?.file_size || null,
+          })
+          .select()
+          .single();
+
+        if (error) {
+          console.error('Failed to send message:', error);
+          setMessages((prev) => prev.filter((m) => m.id !== tempId));
+          throw error;
+        }
+
+        if (data) {
+          const savedMessage = data as Message;
+          setMessages((prev) =>
+            prev.map((m) => (m.id === tempId ? savedMessage : m))
+          );
+          return savedMessage;
+        }
+        return null;
+      } catch (err) {
+        setMessages((prev) => prev.filter((m) => m.id !== tempId));
+        throw err;
+      }
     },
     [conversationId, currentUser?.id, supabase, sendTyping]
   );

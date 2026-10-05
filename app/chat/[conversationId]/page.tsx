@@ -40,10 +40,16 @@ export default async function ConversationPage({ params }: PageProps) {
 
   const otherUserId = conv.user1_id === user.id ? conv.user2_id : conv.user1_id;
 
-  // Fetch both participant profiles concurrently
-  const [currentUserRes, otherUserRes] = await Promise.all([
+  // Fetch participant profiles and initial messages concurrently
+  const [currentUserRes, otherUserRes, initialMessagesRes] = await Promise.all([
     supabase.from('profiles').select('*').eq('id', user.id).single(),
     supabase.from('profiles').select('*').eq('id', otherUserId).single(),
+    supabase
+      .from('messages')
+      .select('*')
+      .eq('conversation_id', conversationId)
+      .order('created_at', { ascending: true })
+      .limit(100),
   ]);
 
   if (!currentUserRes.data || !otherUserRes.data) {
@@ -55,6 +61,7 @@ export default async function ConversationPage({ params }: PageProps) {
       conversationId={conversationId}
       currentUser={currentUserRes.data as Profile}
       otherUser={otherUserRes.data as Profile}
+      initialMessages={(initialMessagesRes.data as any[]) || []}
     />
   );
 }

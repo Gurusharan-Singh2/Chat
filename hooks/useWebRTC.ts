@@ -10,6 +10,7 @@ import {
   IncomingCallData,
 } from '@/lib/types';
 import { RTC_CONFIGURATION, DEFAULT_MEDIA_CONSTRAINTS } from '@/lib/webrtc/config';
+import { ringtones } from '@/lib/webrtc/audio';
 
 export function useWebRTC(currentUser: Profile | null) {
   const supabase = useMemo(() => createClient(), []);
@@ -87,7 +88,10 @@ export function useWebRTC(currentUser: Profile | null) {
       callTimerRef.current = null;
     }
 
-    // 6. Reset state
+    // 6. Stop all ringtone audio
+    ringtones.stop();
+
+    // 7. Reset state
     setCallDuration(0);
     setActiveCall(null);
     setIncomingCall(null);
@@ -243,6 +247,9 @@ export function useWebRTC(currentUser: Profile | null) {
         return;
       }
 
+      // Start WhatsApp calling tone
+      ringtones.startCallingTone();
+
       // 2. Create peer connection
       const pc = createPeerConnection(targetUser.id, callId);
 
@@ -286,6 +293,8 @@ export function useWebRTC(currentUser: Profile | null) {
   // --------------------------------------------------------------------------
   const acceptCall = useCallback(async () => {
     if (!currentUser || !incomingCall) return;
+
+    ringtones.stop();
 
     const { callId, callerId, callerUsername, callerAvatarUrl, isVideo, sdp } =
       incomingCall;
@@ -370,6 +379,9 @@ export function useWebRTC(currentUser: Profile | null) {
   const rejectCall = useCallback(async () => {
     if (!currentUser || !incomingCall) return;
 
+    ringtones.stop();
+    ringtones.playEndTone();
+
     const { callId, callerId } = incomingCall;
     await sendSignal(callerId, {
       type: 'call-reject',
@@ -386,6 +398,9 @@ export function useWebRTC(currentUser: Profile | null) {
   // Step 8: End Active Call (Either Party)
   // --------------------------------------------------------------------------
   const endCall = useCallback(async () => {
+    ringtones.stop();
+    ringtones.playEndTone();
+
     const currentActive = activeCallRef.current;
     if (currentUser && currentActive) {
       await sendSignal(currentActive.peerId, {
@@ -542,12 +557,14 @@ export function useWebRTC(currentUser: Profile | null) {
                   sdp,
                 });
                 setCallState('ringing');
+                ringtones.startIncomingTone();
               }
               break;
             }
 
             case 'call-answer': {
               // Caller received callee's answer
+              ringtones.stop();
               const pc = peerConnectionRef.current;
               if (pc && sdp) {
                 try {
@@ -586,6 +603,8 @@ export function useWebRTC(currentUser: Profile | null) {
             }
 
             case 'call-reject': {
+              ringtones.stop();
+              ringtones.playEndTone();
               setCallState('rejected');
               setTimeout(() => {
                 cleanupCall();
@@ -595,6 +614,8 @@ export function useWebRTC(currentUser: Profile | null) {
             }
 
             case 'call-end': {
+              ringtones.stop();
+              ringtones.playEndTone();
               setCallState('ended');
               setTimeout(() => {
                 cleanupCall();

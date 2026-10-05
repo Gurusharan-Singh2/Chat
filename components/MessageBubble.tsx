@@ -2,7 +2,7 @@
 
 import React, { useState } from 'react';
 import { Message } from '@/lib/types';
-import { Check, CheckCheck, FileText, Download, ExternalLink, X } from 'lucide-react';
+import { Check, CheckCheck, Clock, FileText, Download, ExternalLink, X } from 'lucide-react';
 
 interface MessageBubbleProps {
   message: Message;
@@ -133,12 +133,16 @@ export const MessageBubble: React.FC<MessageBubbleProps> = ({
             {isCurrentUser && (
               <span
                 title={
-                  message.read_at
+                  message.id.startsWith('temp-')
+                    ? 'Sending...'
+                    : message.read_at
                     ? `Seen at ${formatTime(message.read_at)}`
                     : 'Delivered'
                 }
               >
-                {message.read_at ? (
+                {message.id.startsWith('temp-') ? (
+                  <Clock className="w-3 h-3 text-[#8696a0] inline animate-pulse" />
+                ) : message.read_at ? (
                   // WhatsApp iconic sky-blue double ticks
                   <CheckCheck className="w-3.5 h-3.5 text-[#53bdeb] inline" />
                 ) : (
