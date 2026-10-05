@@ -333,7 +333,8 @@ export const UserList: React.FC<UserListProps> = ({ currentUser, isOnline }) => 
                   <Link
                     key={conv.id}
                     href={`/chat/${conv.id}`}
-                    className={`w-full flex items-center gap-3 px-4 py-3 transition cursor-pointer border-b border-[#222e35]/30 ${
+                    prefetch={true}
+                    className={`w-full flex items-center gap-3 px-4 py-3 transition cursor-pointer border-b border-[#222e35]/30 active:scale-[0.99] active:bg-[#202c33] ${
                       isActive
                         ? 'bg-[#2a3942]'
                         : 'hover:bg-[#202c33] active:bg-[#202c33]'

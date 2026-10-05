@@ -13,34 +13,34 @@ export default async function ConversationPage({ params }: PageProps) {
   const { conversationId } = await params;
   const supabase = await createClient();
 
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  // Run user auth check and conversation fetch concurrently
+  const [userRes, convRes] = await Promise.all([
+    supabase.auth.getUser(),
+    supabase
+      .from('conversations')
+      .select('*')
+      .eq('id', conversationId)
+      .single(),
+  ]);
+
+  const user = userRes.data?.user;
+  const conv = convRes.data;
 
   if (!user) {
     redirect('/login');
   }
 
-  // Fetch the conversation
-  const { data: conv, error: convError } = await supabase
-    .from('conversations')
-    .select('*')
-    .eq('id', conversationId)
-    .single();
-
-  if (convError || !conv) {
+  if (convRes.error || !conv) {
     notFound();
   }
 
-  // Verify that the current user is a participant
   if (conv.user1_id !== user.id && conv.user2_id !== user.id) {
     redirect('/chat');
   }
 
-  // Identify the other participant
   const otherUserId = conv.user1_id === user.id ? conv.user2_id : conv.user1_id;
 
-  // Fetch both profiles
+  // Fetch both participant profiles concurrently
   const [currentUserRes, otherUserRes] = await Promise.all([
     supabase.from('profiles').select('*').eq('id', user.id).single(),
     supabase.from('profiles').select('*').eq('id', otherUserId).single(),
