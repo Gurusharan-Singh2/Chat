@@ -150,6 +150,21 @@ export function useChat(
           );
         }
       )
+      .on(
+        'postgres_changes',
+        {
+          event: 'DELETE',
+          schema: 'public',
+          table: 'messages',
+          filter: `conversation_id=eq.${conversationId}`,
+        },
+        (payload) => {
+          const deletedId = (payload.old as { id?: string })?.id;
+          if (deletedId) {
+            setMessages((prev) => prev.filter((m) => m.id !== deletedId));
+          }
+        }
+      )
       .subscribe();
 
     return () => {
@@ -333,11 +348,46 @@ export function useChat(
     [conversationId, currentUser?.id, supabase, sendTyping]
   );
 
+  // --------------------------------------------------------------------------
+  // Step 7: Delete Message Action (WhatsApp Delete for Everyone)
+  // --------------------------------------------------------------------------
+  const deleteMessage = useCallback(
+    async (messageId: string) => {
+      if (!conversationId || !currentUser?.id) return;
+
+      // Optimistic delete from current view
+      let previousMessages: Message[] = [];
+      setMessages((prev) => {
+        previousMessages = prev;
+        return prev.filter((m) => m.id !== messageId);
+      });
+
+      try {
+        const { error } = await supabase
+          .from('messages')
+          .delete()
+          .eq('id', messageId)
+          .eq('sender_id', currentUser.id);
+
+        if (error) {
+          console.error('Failed to delete message:', error);
+          setMessages(previousMessages);
+          throw error;
+        }
+      } catch (err) {
+        setMessages(previousMessages);
+        throw err;
+      }
+    },
+    [conversationId, currentUser?.id, supabase]
+  );
+
   return {
     messages,
     isLoading,
     isOtherUserTyping,
     sendMessage,
+    deleteMessage,
     uploadAttachment,
     sendTyping,
     markMessagesAsRead,

@@ -166,6 +166,13 @@ create policy "Participants can update messages"
     )
   );
 
+-- Users can delete their own messages (WhatsApp Delete for Everyone)
+create policy "Users can delete their own messages"
+  on public.messages
+  for delete
+  to authenticated
+  using (sender_id = auth.uid());
+
 -- ==============================================================================
 -- AUTOMATIC PROFILE CREATION TRIGGER ON AUTH SIGNUP
 -- ==============================================================================

@@ -2,13 +2,14 @@
 
 import React, { useState } from 'react';
 import { Message } from '@/lib/types';
-import { Check, CheckCheck, Clock, FileText, Download, ExternalLink, X } from 'lucide-react';
+import { Check, CheckCheck, Clock, FileText, Download, ExternalLink, X, Trash2 } from 'lucide-react';
 
 interface MessageBubbleProps {
   message: Message;
   isCurrentUser: boolean;
   senderName?: string;
   senderAvatar?: string | null;
+  onDelete?: (messageId: string) => void;
 }
 
 export const MessageBubble: React.FC<MessageBubbleProps> = ({
@@ -16,8 +17,10 @@ export const MessageBubble: React.FC<MessageBubbleProps> = ({
   isCurrentUser,
   senderName,
   senderAvatar,
+  onDelete,
 }) => {
   const [isLightboxOpen, setIsLightboxOpen] = useState(false);
+  const [showDeleteModal, setShowDeleteModal] = useState(false);
 
   const formatTime = (isoString: string) => {
     try {
@@ -43,7 +46,7 @@ export const MessageBubble: React.FC<MessageBubbleProps> = ({
   return (
     <>
       <div
-        className={`flex items-end gap-1.5 mb-2.5 ${
+        className={`group/bubble flex items-end gap-1.5 mb-2.5 ${
           isCurrentUser ? 'justify-end' : 'justify-start'
         }`}
       >
@@ -124,9 +127,9 @@ export const MessageBubble: React.FC<MessageBubbleProps> = ({
               </p>
             )}
 
-          {/* Timestamp and Read Status */}
+          {/* Timestamp, Read Status, and Delete Action */}
           <div
-            className={`flex items-center justify-end gap-1 text-[10px] mt-1 select-none text-[#8696a0]`}
+            className={`flex items-center justify-end gap-1.5 text-[10px] mt-1 select-none text-[#8696a0]`}
           >
             <span>{formatTime(message.created_at)}</span>
 
@@ -150,9 +153,61 @@ export const MessageBubble: React.FC<MessageBubbleProps> = ({
                 )}
               </span>
             )}
+
+            {/* Delete button (visible on hover or tap) */}
+            {isCurrentUser && onDelete && !message.id.startsWith('temp-') && (
+              <button
+                onClick={() => setShowDeleteModal(true)}
+                className="opacity-0 group-hover/bubble:opacity-100 transition-opacity p-0.5 text-[#8696a0] hover:text-rose-400 rounded hover:bg-black/20 cursor-pointer"
+                title="Delete message"
+                aria-label="Delete message"
+              >
+                <Trash2 className="w-3 h-3" />
+              </button>
+            )}
           </div>
         </div>
       </div>
+
+      {/* Delete Confirmation Modal */}
+      {showDeleteModal && (
+        <div
+          className="fixed inset-0 z-50 bg-black/70 flex items-center justify-center p-4 backdrop-blur-sm animate-fade-in"
+          onClick={() => setShowDeleteModal(false)}
+        >
+          <div
+            className="bg-[#202c33] border border-[#222e35] rounded-2xl p-5 max-w-xs w-full shadow-2xl text-center animate-scale-in"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="w-11 h-11 rounded-full bg-rose-500/10 text-rose-400 flex items-center justify-center mx-auto mb-3">
+              <Trash2 className="w-5 h-5" />
+            </div>
+            <h3 className="text-sm font-semibold text-[#e9edef] mb-1">
+              Delete message?
+            </h3>
+            <p className="text-xs text-[#8696a0] mb-4 leading-relaxed">
+              This message will be deleted for everyone in this conversation.
+            </p>
+            <div className="flex items-center gap-2">
+              <button
+                onClick={() => setShowDeleteModal(false)}
+                className="flex-1 py-2 px-3 rounded-xl bg-[#111b21] hover:bg-[#2a3942] text-xs font-semibold text-[#e9edef] transition cursor-pointer"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={() => {
+                  setShowDeleteModal(false);
+                  onDelete?.(message.id);
+                }}
+                className="flex-1 py-2 px-3 rounded-xl bg-rose-600 hover:bg-rose-700 text-xs font-semibold text-white transition shadow-lg shadow-rose-600/30 cursor-pointer"
+              >
+                Delete
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Lightbox Modal for Full Image View */}
       {isLightboxOpen && message.file_url && (

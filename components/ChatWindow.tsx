@@ -73,6 +73,7 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({
     isLoading,
     isOtherUserTyping,
     sendMessage,
+    deleteMessage,
     uploadAttachment,
     sendTyping,
   } = useChat(conversationId, currentUser, initialMessages);
@@ -312,6 +313,7 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({
                   senderAvatar={
                     isCurrentUser ? currentUser.avatar_url : otherUser.avatar_url
                   }
+                  onDelete={deleteMessage}
                 />
               </React.Fragment>
             );

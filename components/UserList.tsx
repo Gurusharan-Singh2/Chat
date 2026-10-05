@@ -11,9 +11,11 @@ import {
   Users,
   Check,
   CheckCheck,
+  Camera,
 } from 'lucide-react';
 import Link from 'next/link';
 import { useRouter, usePathname } from 'next/navigation';
+import { ProfileModal } from './ProfileModal';
 
 interface UserListProps {
   currentUser: Profile;
@@ -25,11 +27,17 @@ export const UserList: React.FC<UserListProps> = ({ currentUser, isOnline }) => 
   const pathname = usePathname();
   const supabase = useMemo(() => createClient(), []);
 
+  const [userProfile, setUserProfile] = useState<Profile>(currentUser);
+  const [isProfileModalOpen, setIsProfileModalOpen] = useState(false);
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [searchQuery, setSearchQuery] = useState('');
   const [searchResults, setSearchResults] = useState<Profile[]>([]);
   const [isSearching, setIsSearching] = useState(false);
   const [isLoadingConversations, setIsLoadingConversations] = useState(true);
+
+  useEffect(() => {
+    setUserProfile(currentUser);
+  }, [currentUser]);
 
   // --------------------------------------------------------------------------
   // Fetch Existing Conversations
@@ -422,32 +430,48 @@ export const UserList: React.FC<UserListProps> = ({ currentUser, isOnline }) => 
       </div>
 
       {/* WhatsApp Profile Footer */}
-      <div className="p-3 bg-[#202c33] border-t border-[#222e35] flex items-center gap-3">
+      <div
+        onClick={() => setIsProfileModalOpen(true)}
+        className="p-3 bg-[#202c33] border-t border-[#222e35] flex items-center gap-3 cursor-pointer hover:bg-[#2a3942]/60 transition group select-none"
+        title="Click to view or change profile photo"
+      >
         <div className="relative shrink-0">
-          <div className="w-10 h-10 rounded-full bg-[#111b21] border border-[#222e35] overflow-hidden flex items-center justify-center font-bold text-[#e9edef]">
-            {currentUser.avatar_url ? (
+          <div className="w-10 h-10 rounded-full bg-[#111b21] border border-[#222e35] overflow-hidden flex items-center justify-center font-bold text-[#e9edef] group-hover:ring-2 group-hover:ring-[#00a884] transition">
+            {userProfile.avatar_url ? (
               // eslint-disable-next-line @next/next/no-img-element
               <img
-                src={currentUser.avatar_url}
+                src={userProfile.avatar_url}
                 alt=""
                 className="w-full h-full object-cover"
               />
             ) : (
-              currentUser.username.charAt(0).toUpperCase()
+              userProfile.username.charAt(0).toUpperCase()
             )}
           </div>
           <span className="absolute bottom-0 right-0 w-2.5 h-2.5 rounded-full bg-[#25d366] ring-2 ring-[#202c33]" />
+          {/* Subtle camera icon on hover */}
+          <div className="absolute inset-0 rounded-full bg-black/40 opacity-0 group-hover:opacity-100 flex items-center justify-center transition-opacity">
+            <Camera className="w-3.5 h-3.5 text-white" />
+          </div>
         </div>
 
         <div className="flex-1 min-w-0">
-          <p className="text-xs font-semibold text-[#e9edef] truncate">
-            {currentUser.username}
+          <p className="text-xs font-semibold text-[#e9edef] truncate group-hover:text-[#00a884] transition">
+            {userProfile.username}
           </p>
-          <p className="text-[11px] text-[#00a884] flex items-center gap-1 font-medium">
-            Online
+          <p className="text-[11px] text-[#8696a0] flex items-center gap-1 font-medium">
+            Tap to edit profile
           </p>
         </div>
       </div>
+
+      {/* Profile Picture & Details Modal */}
+      <ProfileModal
+        isOpen={isProfileModalOpen}
+        onClose={() => setIsProfileModalOpen(false)}
+        currentUser={userProfile}
+        onProfileUpdated={(updated) => setUserProfile(updated)}
+      />
     </div>
   );
 };
