@@ -58,6 +58,7 @@ export const VideoCall: React.FC<VideoCallProps> = ({
           ref={remoteVideoRef}
           autoPlay
           playsInline
+          muted
           className={`w-full h-full object-cover ${
             hasRemoteVideo ? 'block' : 'hidden'
           }`}

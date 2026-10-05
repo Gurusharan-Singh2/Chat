@@ -155,19 +155,14 @@ export function useWebRTC(currentUser: Profile | null) {
 
       // Listen for incoming remote audio/video tracks
       pc.ontrack = (event) => {
-        if (event.streams && event.streams[0]) {
-          remoteStreamRef.current = event.streams[0];
-          setRemoteStream(event.streams[0]);
-        } else {
-          // Fallback if stream is not grouped
-          let inboundStream = remoteStreamRef.current;
-          if (!inboundStream) {
-            inboundStream = new MediaStream();
-            remoteStreamRef.current = inboundStream;
-            setRemoteStream(inboundStream);
-          }
-          inboundStream.addTrack(event.track);
+        let stream = event.streams && event.streams[0];
+        if (!stream) {
+          stream = remoteStreamRef.current || new MediaStream();
+          stream.addTrack(event.track);
         }
+        remoteStreamRef.current = stream;
+        // Always pass a new MediaStream instance so React state updates and triggers audio playback
+        setRemoteStream(new MediaStream(stream.getTracks()));
       };
 
       // Monitor connection state
@@ -200,12 +195,27 @@ export function useWebRTC(currentUser: Profile | null) {
     async (videoRequested: boolean): Promise<MediaStream | null> => {
       try {
         setErrorMessage(null);
-        const constraints: MediaStreamConstraints = {
-          audio: DEFAULT_MEDIA_CONSTRAINTS.audio,
-          video: videoRequested ? DEFAULT_MEDIA_CONSTRAINTS.video : false,
-        };
+        let stream: MediaStream;
 
-        const stream = await navigator.mediaDevices.getUserMedia(constraints);
+        try {
+          const constraints: MediaStreamConstraints = {
+            audio: DEFAULT_MEDIA_CONSTRAINTS.audio,
+            video: videoRequested ? DEFAULT_MEDIA_CONSTRAINTS.video : false,
+          };
+          stream = await navigator.mediaDevices.getUserMedia(constraints);
+        } catch {
+          // Fallback to basic constraints if advanced audio processing flags failed
+          stream = await navigator.mediaDevices.getUserMedia({
+            audio: true,
+            video: videoRequested,
+          });
+        }
+
+        // Ensure all audio tracks are active
+        stream.getAudioTracks().forEach((track) => {
+          track.enabled = true;
+        });
+
         localStreamRef.current = stream;
         setLocalStream(stream);
         setIsVideoEnabled(videoRequested);
@@ -356,8 +366,11 @@ export function useWebRTC(currentUser: Profile | null) {
         }
       }
 
-      // 6. Create WebRTC SDP Answer
-      const answer = await pc.createAnswer();
+      // 6. Create WebRTC SDP Answer with bidirectional media request
+      const answer = await pc.createAnswer({
+        offerToReceiveAudio: true,
+        offerToReceiveVideo: isVideo,
+      });
       await pc.setLocalDescription(answer);
 
       // 7. Send answer back to caller

@@ -1,9 +1,9 @@
 'use client';
 
-import React, { useEffect } from 'react';
+import React, { useEffect, useRef } from 'react';
 import { ActiveCallData, CallState } from '@/lib/types';
 import { VideoCall } from './VideoCall';
-import { ringtones } from '@/lib/webrtc/audio';
+import { startCallingTone, stopRingtones, playEndTone } from '@/lib/webrtc/audio';
 import { Mic, MicOff, Video, VideoOff, PhoneOff } from 'lucide-react';
 
 interface CallModalProps {
@@ -31,18 +31,35 @@ export const CallModal: React.FC<CallModalProps> = ({
   onToggleVideo,
   onEndCall,
 }) => {
+  const remoteAudioRef = useRef<HTMLAudioElement>(null);
+
+  // Play remote peer audio stream across voice and video calls
+  useEffect(() => {
+    if (remoteAudioRef.current && remoteStream) {
+      remoteAudioRef.current.srcObject = remoteStream;
+      const playPromise = remoteAudioRef.current.play();
+      if (playPromise !== undefined) {
+        playPromise.catch((err) => {
+          console.warn('[CallModal] Remote audio autoplay error:', err);
+        });
+      }
+    }
+  }, [remoteStream]);
+
   useEffect(() => {
     if (callState === 'calling') {
-      ringtones.startCallingTone();
+      try { startCallingTone(); } catch {}
     } else if (callState === 'connected') {
-      ringtones.stop();
+      try { stopRingtones(); } catch {}
     } else if (callState === 'ended' || callState === 'rejected') {
-      ringtones.stop();
-      ringtones.playEndTone();
+      try {
+        stopRingtones();
+        playEndTone();
+      } catch {}
     }
 
     return () => {
-      ringtones.stop();
+      try { stopRingtones(); } catch {}
     };
   }, [callState]);
 
@@ -94,6 +111,14 @@ export const CallModal: React.FC<CallModalProps> = ({
             </div>
           </div>
         </div>
+
+        {/* Hidden dedicated audio element to play remote peer audio in all calls (voice & video) */}
+        <audio
+          ref={remoteAudioRef}
+          autoPlay
+          playsInline
+          className="fixed -top-96 -left-96 opacity-0 pointer-events-none"
+        />
 
         {/* Video / Audio Stage */}
         <div className="flex-1 w-full h-full">
