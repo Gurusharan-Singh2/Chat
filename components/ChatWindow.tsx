@@ -131,7 +131,7 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({
   };
 
   return (
-    <div className="flex flex-col h-full w-full bg-[#0b141a] overflow-hidden select-none">
+    <div className="flex flex-col h-full w-full min-h-0 bg-[#0b141a] overflow-hidden select-none">
       {/* WhatsApp Header */}
       <div className="flex items-center justify-between px-3 sm:px-4 py-2.5 bg-[#202c33] border-b border-[#222e35] shrink-0 z-20 shadow-md">
         <div className="flex items-center gap-2.5 min-w-0">
@@ -209,7 +209,7 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({
       </div>
 
       {/* Messages Stream with WhatsApp Texture */}
-      <div className="flex-1 overflow-y-auto px-3 sm:px-6 py-4 space-y-1 wa-chat-bg">
+      <div className="flex-1 min-h-0 overflow-y-auto px-3 sm:px-6 py-4 space-y-1 wa-chat-bg">
         {isLoading ? (
           <div className="flex flex-col items-center justify-center h-full gap-2.5 text-[#8696a0]">
             <Loader2 className="w-6 h-6 animate-spin text-[#00a884]" />
@@ -298,7 +298,7 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({
       )}
 
       {/* WhatsApp Input Bar */}
-      <div className="p-2 sm:p-3 bg-[#202c33] border-t border-[#222e35] shrink-0">
+      <div className="p-2 sm:p-3 bg-[#202c33] border-t border-[#222e35] shrink-0 sticky bottom-0 z-30 pb-[max(0.75rem,env(safe-area-inset-bottom))]">
         <form onSubmit={handleSendMessage} className="flex items-center gap-2">
           {/* Hidden file input */}
           <input

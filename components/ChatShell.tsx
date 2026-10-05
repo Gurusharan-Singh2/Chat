@@ -18,7 +18,7 @@ const ChatShellLayout: React.FC<ChatShellProps> = ({ currentUser, children }) =>
   const { isOnline } = usePresence();
 
   return (
-    <div className="flex h-screen w-screen overflow-hidden bg-[#111b21] text-[#e9edef] fixed inset-0">
+    <div className="fixed inset-0 w-full h-[100dvh] max-h-[100dvh] flex flex-col md:flex-row overflow-hidden bg-[#111b21] text-[#e9edef]">
       {/* Left Sidebar (UserList): Hidden on mobile if conversation is selected */}
       <div
         className={`h-full w-full md:w-[360px] lg:w-[420px] shrink-0 border-r border-[#222e35] ${
@@ -30,7 +30,7 @@ const ChatShellLayout: React.FC<ChatShellProps> = ({ currentUser, children }) =>
 
       {/* Right Main Area: Full width on mobile when conversation selected */}
       <div
-        className={`h-full flex-1 overflow-hidden p-0 ${
+        className={`h-full flex-1 min-h-0 overflow-hidden p-0 ${
           !isConversationActive ? 'hidden md:flex flex-col' : 'flex flex-col'
         }`}
       >
