@@ -30,6 +30,7 @@ export function useWebRTC(currentUser: Profile | null) {
   const [isVideoEnabled, setIsVideoEnabled] = useState(true);
   const [callDuration, setCallDuration] = useState(0);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [errorMediaType, setErrorMediaType] = useState<'audio' | 'video' | 'both'>('both');
 
   // Mutable references for WebRTC internals
   const peerConnectionRef = useRef<RTCPeerConnection | null>(null);
@@ -193,6 +194,18 @@ export function useWebRTC(currentUser: Profile | null) {
   // --------------------------------------------------------------------------
   const getMediaStream = useCallback(
     async (videoRequested: boolean): Promise<MediaStream | null> => {
+      if (
+        typeof navigator === 'undefined' ||
+        !navigator.mediaDevices ||
+        !navigator.mediaDevices.getUserMedia
+      ) {
+        setErrorMediaType(videoRequested ? 'both' : 'audio');
+        setErrorMessage(
+          'Your browser does not support audio/video calling or is running in an insecure context (HTTPS required).'
+        );
+        return null;
+      }
+
       try {
         setErrorMessage(null);
         let stream: MediaStream;
@@ -203,8 +216,15 @@ export function useWebRTC(currentUser: Profile | null) {
             video: videoRequested ? DEFAULT_MEDIA_CONSTRAINTS.video : false,
           };
           stream = await navigator.mediaDevices.getUserMedia(constraints);
-        } catch {
-          // Fallback to basic constraints if advanced audio processing flags failed
+        } catch (firstErr) {
+          // If the user or browser explicitly denied permission, do not retry fallback
+          if (
+            firstErr instanceof DOMException &&
+            (firstErr.name === 'NotAllowedError' || firstErr.name === 'PermissionDeniedError')
+          ) {
+            throw firstErr;
+          }
+          // Fallback to basic constraints if advanced audio/video processing flags failed
           stream = await navigator.mediaDevices.getUserMedia({
             audio: true,
             video: videoRequested,
@@ -222,14 +242,26 @@ export function useWebRTC(currentUser: Profile | null) {
         return stream;
       } catch (err: unknown) {
         console.error('Error getting media devices:', err);
-        let message = 'Unable to access your microphone or camera.';
+        setErrorMediaType(videoRequested ? 'both' : 'audio');
+        let message = videoRequested
+          ? 'Unable to access your camera or microphone.'
+          : 'Unable to access your microphone.';
+
         if (err instanceof DOMException) {
           if (err.name === 'NotAllowedError' || err.name === 'PermissionDeniedError') {
-            message = 'Microphone/Camera permission was denied. Please allow device access.';
+            message = videoRequested
+              ? 'Camera & Microphone permission was denied. Tap the tune/lock icon in your address bar to allow device access.'
+              : 'Microphone permission was denied. Tap the tune/lock icon in your address bar to allow microphone access.';
           } else if (err.name === 'NotFoundError' || err.name === 'DevicesNotFoundError') {
-            message = 'No microphone or camera device found on your system.';
+            message = videoRequested
+              ? 'No camera or microphone device found on your system.'
+              : 'No microphone found on your system.';
           } else if (err.name === 'NotReadableError' || err.name === 'TrackStartError') {
-            message = 'Your camera or microphone is already in use by another application.';
+            message = videoRequested
+              ? 'Your camera or microphone is already in use by another application.'
+              : 'Your microphone is already in use by another application.';
+          } else if (err.name === 'OverconstrainedError') {
+            message = 'Your device hardware does not support the requested video or audio settings.';
           }
         }
         setErrorMessage(message);
@@ -261,6 +293,7 @@ export function useWebRTC(currentUser: Profile | null) {
       const stream = await getMediaStream(isVideo);
       if (!stream) {
         setCallState('idle');
+        setActiveCall(null);
         return;
       }
 
@@ -518,7 +551,17 @@ export function useWebRTC(currentUser: Profile | null) {
         }
       } catch (err) {
         console.error('Failed to enable camera track:', err);
-        setErrorMessage('Could not access camera.');
+        setErrorMediaType('video');
+        if (
+          err instanceof DOMException &&
+          (err.name === 'NotAllowedError' || err.name === 'PermissionDeniedError')
+        ) {
+          setErrorMessage(
+            'Camera permission was denied. Tap the tune/lock icon in your address bar to allow camera access.'
+          );
+        } else {
+          setErrorMessage('Could not access camera.');
+        }
       }
     }
   }, [currentUser, sendSignal]);
@@ -712,6 +755,8 @@ export function useWebRTC(currentUser: Profile | null) {
     isVideoEnabled,
     callDuration,
     errorMessage,
+    errorMediaType,
+    setErrorMessage,
     clearError: () => setErrorMessage(null),
     startCall,
     acceptCall,

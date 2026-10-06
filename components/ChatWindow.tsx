@@ -3,6 +3,7 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { Profile, Message } from '@/lib/types';
 import { useChat } from '@/hooks/useChat';
+import { useCall } from './CallProvider';
 import { MessageBubble } from './MessageBubble';
 import {
   Phone,
@@ -88,6 +89,8 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({
     uploadAttachment,
     sendTyping,
   } = useChat(conversationId, currentUser, initialMessages);
+
+  const { setErrorMessage, openPermissionGuide } = useCall();
 
   const [inputContent, setInputContent] = useState('');
   const [isSending, setIsSending] = useState(false);
@@ -241,7 +244,12 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({
       }, 1000);
     } catch (err) {
       console.error('Microphone permission error:', err);
-      alert('Microphone access is required to record WhatsApp voice notes.');
+      if (err instanceof DOMException && (err.name === 'NotAllowedError' || err.name === 'PermissionDeniedError')) {
+        setErrorMessage('Microphone permission was denied. Tap the tune/lock icon in your address bar to allow microphone access.');
+        openPermissionGuide('audio');
+      } else {
+        setErrorMessage('Unable to access microphone to record voice notes.');
+      }
     }
   };
 

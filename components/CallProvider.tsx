@@ -3,9 +3,11 @@
 import React, { createContext, useContext, ReactNode } from 'react';
 import { Profile, ActiveCallData, IncomingCallData, CallState } from '@/lib/types';
 import { useWebRTC } from '@/hooks/useWebRTC';
+import { useState } from 'react';
 import { IncomingCallModal } from './IncomingCallModal';
 import { CallModal } from './CallModal';
-import { AlertCircle, X } from 'lucide-react';
+import { PermissionGuideModal } from './PermissionGuideModal';
+import { AlertCircle, X, HelpCircle } from 'lucide-react';
 
 interface CallContextType {
   callState: CallState;
@@ -22,6 +24,8 @@ interface CallContextType {
   endCall: () => void;
   toggleAudio: () => void;
   toggleVideo: () => void;
+  setErrorMessage: (msg: string | null) => void;
+  openPermissionGuide: (mediaType?: 'audio' | 'video' | 'both') => void;
 }
 
 const CallContext = createContext<CallContextType | null>(null);
@@ -40,6 +44,9 @@ interface CallProviderProps {
 }
 
 export const CallProvider: React.FC<CallProviderProps> = ({ currentUser, children }) => {
+  const [isPermissionGuideOpen, setIsPermissionGuideOpen] = useState(false);
+  const [guideMediaType, setGuideMediaType] = useState<'audio' | 'video' | 'both'>('both');
+
   const {
     callState,
     activeCall,
@@ -50,6 +57,8 @@ export const CallProvider: React.FC<CallProviderProps> = ({ currentUser, childre
     isVideoEnabled,
     callDuration,
     errorMessage,
+    errorMediaType,
+    setErrorMessage,
     clearError,
     startCall,
     acceptCall,
@@ -58,6 +67,17 @@ export const CallProvider: React.FC<CallProviderProps> = ({ currentUser, childre
     toggleAudio,
     toggleVideo,
   } = useWebRTC(currentUser);
+
+  const openPermissionGuide = (mediaType?: 'audio' | 'video' | 'both') => {
+    setGuideMediaType(mediaType || errorMediaType || 'both');
+    setIsPermissionGuideOpen(true);
+  };
+
+  const isPermissionError =
+    !!errorMessage &&
+    (errorMessage.toLowerCase().includes('permission') ||
+      errorMessage.toLowerCase().includes('denied') ||
+      errorMessage.toLowerCase().includes('allow'));
 
   return (
     <CallContext.Provider
@@ -76,18 +96,38 @@ export const CallProvider: React.FC<CallProviderProps> = ({ currentUser, childre
         endCall,
         toggleAudio,
         toggleVideo,
+        setErrorMessage,
+        openPermissionGuide,
       }}
     >
       {children}
 
+      {/* Device Permission Guide Modal */}
+      <PermissionGuideModal
+        isOpen={isPermissionGuideOpen}
+        onClose={() => setIsPermissionGuideOpen(false)}
+        mediaType={guideMediaType}
+      />
+
       {/* Error Notification Toast */}
       {errorMessage && (
-        <div className="fixed bottom-5 right-5 z-50 flex items-center gap-3 bg-rose-950/90 border border-rose-700/80 text-rose-200 px-4 py-3 rounded-2xl shadow-2xl backdrop-blur-md animate-fade-in max-w-sm">
+        <div className="fixed bottom-5 left-4 right-4 sm:left-auto sm:right-5 z-50 flex items-center gap-3 bg-[#1f1215]/95 border border-rose-500/60 text-rose-100 px-4 py-3 rounded-2xl shadow-2xl backdrop-blur-md animate-fade-in sm:max-w-md">
           <AlertCircle className="w-5 h-5 text-rose-400 shrink-0" />
-          <p className="text-xs flex-1">{errorMessage}</p>
+          <p className="text-xs flex-1 leading-relaxed">{errorMessage}</p>
+
+          {isPermissionError && (
+            <button
+              onClick={() => openPermissionGuide(errorMediaType)}
+              className="px-2.5 py-1 text-xs font-semibold rounded-lg bg-rose-500/20 text-rose-200 hover:bg-rose-500/30 border border-rose-500/40 transition flex items-center gap-1 shrink-0 cursor-pointer active:scale-95"
+            >
+              <HelpCircle className="w-3.5 h-3.5" />
+              How to Fix
+            </button>
+          )}
+
           <button
             onClick={clearError}
-            className="text-rose-400 hover:text-white p-1"
+            className="text-rose-400 hover:text-white p-1 rounded-md transition cursor-pointer"
             aria-label="Dismiss error"
           >
             <X className="w-4 h-4" />
