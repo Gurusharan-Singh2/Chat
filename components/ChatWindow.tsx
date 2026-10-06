@@ -17,6 +17,7 @@ import {
   Lock,
   ChevronDown,
   Smile,
+  Keyboard,
   Mic,
   Trash2,
   Check,
@@ -215,7 +216,6 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({
 
   const handleSelectEmoji = (emoji: string) => {
     setInputContent((prev) => prev + emoji);
-    inputRef.current?.focus();
   };
 
   // --------------------------------------------------------------------------
@@ -591,7 +591,11 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({
           </div>
         ) : (
           /* Standard WhatsApp Message Input Bar */
-          <form onSubmit={handleSendMessage} className="flex items-center gap-2">
+          <form
+            onSubmit={handleSendMessage}
+            autoComplete="off"
+            className="flex items-center gap-2"
+          >
             {/* Hidden file input */}
             <input
               ref={fileInputRef}
@@ -604,15 +608,32 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({
             {/* Emoji Toggle Button */}
             <button
               type="button"
-              onClick={() => setShowEmojiPicker((prev) => !prev)}
+              onClick={() => {
+                setShowEmojiPicker((prev) => {
+                  if (!prev) {
+                    // Switching to emoji drawer: dismiss virtual keyboard
+                    inputRef.current?.blur();
+                    return true;
+                  } else {
+                    // Switching back to text: bring up virtual keyboard
+                    inputRef.current?.focus();
+                    return false;
+                  }
+                });
+              }}
               className={`p-2 rounded-full transition cursor-pointer shrink-0 active:scale-95 ${
                 showEmojiPicker
                   ? 'text-[#00a884] bg-[#111b21]'
                   : 'text-[#8696a0] hover:text-[#e9edef] hover:bg-[#111b21]'
               }`}
-              title="Emoji"
+              title={showEmojiPicker ? 'Keyboard' : 'Emoji'}
+              aria-label={showEmojiPicker ? 'Switch to keyboard' : 'Open emoji picker'}
             >
-              <Smile className="w-5 h-5" />
+              {showEmojiPicker ? (
+                <Keyboard className="w-5 h-5 text-[#00a884]" />
+              ) : (
+                <Smile className="w-5 h-5" />
+              )}
             </button>
 
             {/* Attachment Paperclip Button */}
@@ -628,8 +649,22 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({
             <input
               ref={inputRef}
               type="text"
+              name="chat-message"
+              id="chat-message-input"
+              autoComplete="off"
+              autoCorrect="on"
+              autoCapitalize="sentences"
+              spellCheck={true}
+              data-lpignore="true"
+              data-form-type="other"
               value={inputContent}
               onChange={handleInputChange}
+              onFocus={() => {
+                // If user taps directly into input, hide emoji drawer
+                if (showEmojiPicker) {
+                  setShowEmojiPicker(false);
+                }
+              }}
               placeholder={
                 selectedFile
                   ? 'Add a caption...'
